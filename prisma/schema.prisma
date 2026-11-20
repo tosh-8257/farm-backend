@@ -2457,3 +2457,52 @@ model business_chain_wallets {
   created_at     DateTime @default(now()) @db.Timestamptz(6)
   updated_at     DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 }
+
+/// Durable idempotency for commerce and other new money movements.
+/// The existing Redis middleware only locks in-flight HTTP retries.
+model idempotency_records {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  scope           String    @db.VarChar(80)
+  idempotency_key String    @db.VarChar(120)
+  request_hash    String    @db.VarChar(64)
+  status          String    @default("started") @db.VarChar(20)
+  response        Json?
+  created_at      DateTime  @default(now()) @db.Timestamptz(6)
+  completed_at    DateTime? @db.Timestamptz(6)
+
+  @@unique([scope, idempotency_key])
+  @@index([status, created_at])
+}
+
+/// Postgres is the source of truth for background work. Redis may deliver it.
+model platform_jobs {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  kind            String    @db.VarChar(80)
+  idempotency_key String    @db.VarChar(120)
+  status          String    @default("queued") @db.VarChar(20)
+  payload         Json
+  attempts        Int       @default(0)
+  max_attempts    Int       @default(5)
+  last_error      String?
+  run_after       DateTime  @default(now()) @db.Timestamptz(6)
+  created_at      DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
+
+  @@unique([kind, idempotency_key])
+  @@index([status, run_after])
+}
+
+/// Operational permissions. Not a fourth customer account type.
+model operational_grants {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id       String    @db.Uuid
+  permission    String    @db.VarChar(80)
+  resource_type String    @default("") @db.VarChar(40)
+  resource_id   String    @default("") @db.VarChar(64)
+  granted_by    String?   @db.Uuid
+  revoked_at    DateTime? @db.Timestamptz(6)
+  created_at    DateTime  @default(now()) @db.Timestamptz(6)
+
+  @@unique([user_id, permission, resource_type, resource_id])
+  @@index([user_id, revoked_at])
+}
