@@ -5,6 +5,8 @@ import { CommerceService } from './commerce.service';
 import { BusinessOpsModule } from '../business-ops/business-ops.module';
 import { ExternalStoresService } from './external-stores.service';
 import { ExternalStoresController } from './external-stores.controller';
+import { CommerceAiController, SettlementController } from './settlement.controller';
+import { SettlementService } from './settlement.service';
 import {
   AdminSuppliersController,
   MerchantDropshipController,
@@ -18,8 +20,10 @@ import {
     MerchantDropshipController,
     AdminSuppliersController,
     ExternalStoresController,
+    CommerceAiController,
+    SettlementController,
   ],
-  providers: [CommerceService, ExternalStoresService],
-  exports: [CommerceService, ExternalStoresService],
+  providers: [CommerceService, ExternalStoresService, SettlementService],
+  exports: [CommerceService, ExternalStoresService, SettlementService],
 })
 export class CommerceModule {}

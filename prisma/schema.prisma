@@ -2693,3 +2693,16 @@ model delivery_assignments {
   created_at DateTime @default(now()) @db.Timestamptz(6)
   job        delivery_jobs @relation(fields: [job_id], references: [id], onDelete: Cascade)
 }
+
+/// Reconcilable split for a paid dropshipping order. Does not move wallet balances.
+model commerce_settlements {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  order_id          String   @unique @db.Uuid
+  retail            Decimal  @db.Decimal(30, 8)
+  supplier_payable  Decimal  @db.Decimal(30, 8)
+  commission_farm   Decimal  @db.Decimal(30, 8)
+  seller_net        Decimal  @db.Decimal(30, 8)
+  lines             Json
+  status            String   @default("recorded") @db.VarChar(20)
+  created_at        DateTime @default(now()) @db.Timestamptz(6)
+}
