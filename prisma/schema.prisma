@@ -2604,3 +2604,26 @@ model supplier_fulfilments {
 
   @@unique([order_id, supplier_id])
 }
+
+model external_store_connections {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  business_id String   @db.Uuid
+  platform    String   @db.VarChar(20)
+  shop_domain String   @db.VarChar(255)
+  status      String   @default("unverified") @db.VarChar(20)
+  created_at  DateTime @default(now()) @db.Timestamptz(6)
+  jobs        external_store_sync_jobs[]
+
+  @@unique([business_id, platform, shop_domain])
+}
+
+model external_store_sync_jobs {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  connection_id String   @db.Uuid
+  status        String   @db.VarChar(20)
+  reason        String
+  created_at    DateTime @default(now()) @db.Timestamptz(6)
+  connection    external_store_connections @relation(fields: [connection_id], references: [id], onDelete: Cascade)
+
+  @@index([connection_id])
+}
