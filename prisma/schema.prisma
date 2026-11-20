@@ -2667,3 +2667,29 @@ model cargo_shipment_events {
 
   @@index([shipment_id, created_at])
 }
+
+model delivery_partner_profiles {
+  id                  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id             String    @unique @db.Uuid
+  kind                String    @db.VarChar(40)
+  legal_name          String    @db.VarChar(255)
+  status              String    @default("submitted") @db.VarChar(40)
+  document_expires_at DateTime? @db.Timestamptz(6)
+  created_at          DateTime  @default(now()) @db.Timestamptz(6)
+}
+
+model delivery_jobs {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  shipment_id String   @unique @db.Uuid
+  status      String   @default("open") @db.VarChar(20)
+  created_at  DateTime @default(now()) @db.Timestamptz(6)
+  assignment  delivery_assignments?
+}
+
+model delivery_assignments {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  job_id     String   @unique @db.Uuid
+  partner_id String   @db.Uuid
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  job        delivery_jobs @relation(fields: [job_id], references: [id], onDelete: Cascade)
+}
