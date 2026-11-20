@@ -139,7 +139,7 @@ describe('NFC tap to pay', () => {
         pin: '1234',
       }),
       '1.2.3.4',
-      { merchantFee: true },
+      { merchantFee: true, paymentChannel: 'nfc' },
     );
     const b = await svc.pay('payer', { token: t, pin: '1234' }, '');
     expect(b.data.replay).toBe(true);

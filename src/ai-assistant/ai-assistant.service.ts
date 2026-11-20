@@ -20,6 +20,7 @@ import { AiToolsService } from './ai-tools.service';
 import { TravelService } from '../travel/travel.service';
 import { AgentPaymentsService } from '../agent-payments/agent-payments.service';
 import { HotelsService } from '../travel/hotels.service';
+import { aiPlatformCeiling } from './ai-limits';
 
 export const AI_ACTIONS = [
   'send_farm',
@@ -384,6 +385,7 @@ export class AiAssistantService {
 
   // ---------- spend permissions ----------
   async getPermissions(userId: string) {
+    const ceiling = aiPlatformCeiling();
     const p = await this.prisma.ai_spend_permissions.findUnique({
       where: { user_id: userId },
     });
@@ -396,6 +398,8 @@ export class AiAssistantService {
         spend_categories: [...SPEND_CATEGORIES] as string[],
         revoked_at: null,
         spent_today: 0,
+        platform_per_tx_ceiling: ceiling.per_tx,
+        platform_daily_ceiling: ceiling.daily,
       };
     return {
       enabled: p.enabled && !p.revoked_at,
@@ -405,6 +409,8 @@ export class AiAssistantService {
       spend_categories: p.spend_categories,
       revoked_at: p.revoked_at,
       spent_today: await this.committedToday(userId),
+      platform_per_tx_ceiling: ceiling.per_tx,
+      platform_daily_ceiling: ceiling.daily,
     };
   }
 
@@ -433,8 +439,15 @@ export class AiAssistantService {
       throw new BadRequestException(
         'Per-transaction cap cannot exceed the daily cap',
       );
-    if (dto.daily_cap > 100_000)
-      throw new BadRequestException('Daily cap cannot exceed 100,000 FARM');
+    const ceiling = aiPlatformCeiling();
+    if (dto.per_tx_cap > ceiling.per_tx)
+      throw new BadRequestException(
+        `Per-payment cap cannot exceed the platform ceiling of ${ceiling.per_tx} FARM`,
+      );
+    if (dto.daily_cap > ceiling.daily)
+      throw new BadRequestException(
+        `Daily cap cannot exceed the platform ceiling of ${ceiling.daily} FARM (AI_MAX_DAILY_FARM)`,
+      );
     const data = {
       enabled: !!dto.enabled,
       per_tx_cap: dto.per_tx_cap,

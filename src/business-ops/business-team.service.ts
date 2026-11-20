@@ -13,6 +13,7 @@ import { Optional } from '@nestjs/common';
 import { BusinessAccessService } from './business-access.service';
 import { assignableRoles, BusinessRole, permissionsFor } from './permissions';
 import { AddMemberDto, ProfileDto, UpdateMemberDto } from './business-ops.dto';
+import { assignBusinessPublicCode } from '../business/business-code';
 
 const userSelect = {
   id: true,
@@ -471,6 +472,7 @@ export class BusinessTeamService {
       where: { id: a.business.id },
       select: {
         id: true,
+        public_code: true,
         legal_name: true,
         trading_name: true,
         registration_number: true,
@@ -488,8 +490,12 @@ export class BusinessTeamService {
         approved_at: true,
       },
     });
+    let publicCode = b?.public_code ?? null;
+    if (b && !publicCode) {
+      publicCode = await assignBusinessPublicCode(this.prisma, b.id);
+    }
     return {
-      data: b,
+      data: b ? { ...b, public_code: publicCode, business_id: b.id } : b,
       meta: { can_edit: a.role === 'owner' || a.role === 'admin' },
     };
   }

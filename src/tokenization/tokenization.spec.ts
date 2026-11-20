@@ -27,6 +27,21 @@ function mocks(over: any = {}) {
           id: PID,
           status: 'funded',
           raised_amount: 800,
+          project_name: 'Solar',
+          sector: 'energy',
+          summary: 'A farm',
+          description: 'Details',
+          use_of_funds: 'Equipment',
+          risk_factors: 'Weather',
+          instrument_type: 'revenue_share',
+          location: 'Nakuru',
+          target_amount: 800,
+          minimum_investment: 10,
+          milestones: [{ amount: 800 }],
+          documents: [
+            { kind: 'business_plan' },
+            { kind: 'financial_statements' },
+          ],
           token: null,
         },
       ),
@@ -88,20 +103,34 @@ describe('Phase 5 – Algorand config', () => {
     expect(c.enabled).toBe(false);
     expect(c.missing).toEqual([
       'TOKENIZATION_ENABLED',
-      'ALGORAND_NETWORK',
       'ALGORAND_NODE_URL',
       'ALGORAND_ISSUER_MNEMONIC',
+      'TOKENIZATION_NETWORK',
     ]);
   });
-  it('refuses mainnet and non-https nodes; never echoes secret values', () => {
-    const c = algorandConfig({
+  it('does not inherit mainnet and never echoes secret values', () => {
+    const inherited = algorandConfig({
       ...ENV,
       ALGORAND_NETWORK: 'mainnet',
-      ALGORAND_NODE_URL: 'http://x',
+      ALGORAND_NODE_URL: 'https://mainnet.example',
       ALGORAND_ISSUER_MNEMONIC: 'secret words',
     });
-    expect(c.enabled).toBe(false);
-    expect(JSON.stringify(c)).not.toContain('secret words');
+    expect(inherited.enabled).toBe(false);
+    expect(inherited.problems.join(' ')).toContain('TOKENIZATION_NETWORK=mainnet');
+    expect(JSON.stringify(inherited)).not.toContain('secret words');
+    const http = algorandConfig({ ...ENV, ALGORAND_NODE_URL: 'http://x' });
+    expect(http.enabled).toBe(false);
+  });
+  it('enables mainnet only when TOKENIZATION_NETWORK=mainnet', () => {
+    const c = algorandConfig({
+      ...ENV,
+      TOKENIZATION_NETWORK: 'mainnet',
+      ALGORAND_NETWORK: 'mainnet',
+      ALGORAND_NODE_URL: 'https://mainnet.example',
+    });
+    expect(c.enabled).toBe(true);
+    expect(c.network).toBe('mainnet');
+    expect(c.network_source).toBe('TOKENIZATION_NETWORK');
   });
   it('is enabled on testnet with all vars', () =>
     expect(algorandConfig(ENV).enabled).toBe(true));
@@ -135,6 +164,23 @@ describe('Phase 5 – tokenization flow', () => {
       mocks().svc.request('u', PID, { asset_name: 'Solar', unit_name: 'SOL' }),
     ).rejects.toThrow(/15% buyback commitment/);
     expect(access.resolve).toHaveBeenCalledWith('u', 'projects:manage');
+    await expect(
+      mocks({
+        project: {
+          id: PID,
+          status: 'funded',
+          raised_amount: 800,
+          project_name: 'Solar',
+          token: null,
+          documents: [],
+          milestones: [],
+        },
+      }).svc.request('u', PID, {
+        asset_name: 'Solar',
+        unit_name: 'SOLAR',
+        accept_buyback_commitment: true,
+      }),
+    ).rejects.toThrow('Finish the project application');
   });
   it('admin mint is refused (503 + missing names) while not configured, and nothing is claimed', async () => {
     for (const k of Object.keys(ENV)) delete process.env[k];

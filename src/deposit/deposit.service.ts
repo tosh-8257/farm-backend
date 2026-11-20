@@ -30,6 +30,7 @@ import {
   normalizeProviderCurrency,
   resolveCoinBounds,
 } from '../crypto/coin-limits';
+import { limitsPayload } from '../crypto/limits-payload';
 
 function httpErrorText(error: HttpException): string {
   const raw = error.getResponse();
@@ -75,14 +76,16 @@ export class DepositService {
   private unavailableLimits(currency: string, message: string) {
     const bounds = resolveCoinBounds(currency);
     return {
-      data: {
+      data: limitsPayload({
         currency,
-        available: false,
-        message,
+        network: null,
         min_amount: bounds.min_amount,
         max_amount: bounds.max_amount,
-        minimumDepositUsd: MIN_NOWPAYMENTS_CRYPTO_DEPOSIT_USD,
-      },
+        min_usd: MIN_NOWPAYMENTS_CRYPTO_DEPOSIT_USD,
+        source: 'farm_floor',
+        available: false,
+        message,
+      }),
     };
   }
 
@@ -121,15 +124,25 @@ export class DepositService {
         resolved.currency,
         minimum.minimumAmount,
       );
+      const minimumUsd = Math.max(
+        MIN_NOWPAYMENTS_CRYPTO_DEPOSIT_USD,
+        minimum.minimumUsd,
+      );
       return {
         data: {
           ...minimum,
-          ...bounds,
-          available: true,
-          minimumDepositUsd: Math.max(
-            MIN_NOWPAYMENTS_CRYPTO_DEPOSIT_USD,
-            minimum.minimumUsd,
-          ),
+          ...limitsPayload({
+            currency: bounds.currency,
+            network: bounds.currency,
+            min_amount: bounds.min_amount,
+            max_amount: bounds.max_amount,
+            min_usd: minimumUsd,
+            source: bounds.min_source ?? 'provider',
+            available: true,
+          }),
+          minimumDepositUsd: minimumUsd,
+          min_source: bounds.min_source,
+          max_source: bounds.max_source,
         },
       };
     } catch (error) {
@@ -145,17 +158,25 @@ export class DepositService {
   async getCryptoLimits(currency?: string) {
     if (!currency) {
       const coins = configuredCoinLimits();
+      const floor = limitsPayload({
+        currency: 'usd',
+        min_usd: MIN_NOWPAYMENTS_CRYPTO_DEPOSIT_USD,
+        source: 'farm_floor',
+        available: true,
+        message:
+          Object.keys(coins).length > 0
+            ? undefined
+            : 'Per-coin maximums are not configured. The minimum crypto deposit is USD 2.00.',
+      });
       return {
         data: {
           coins,
           limits_configured: Object.keys(coins).length > 0,
           minimum_deposit_usd: MIN_NOWPAYMENTS_CRYPTO_DEPOSIT_USD,
-          ...(Object.keys(coins).length
-            ? {}
-            : {
-                message:
-                  'Per-coin maximums are not configured. The minimum crypto deposit is USD 2.00.',
-              }),
+          minimumUsd: floor.minimumUsd,
+          min_usd: floor.min_usd,
+          fetched_at: floor.fetched_at,
+          ...(floor.message ? { message: floor.message } : {}),
         },
       };
     }

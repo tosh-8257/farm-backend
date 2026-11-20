@@ -7,6 +7,7 @@ import { ChainWalletService } from './chain-wallet.service';
 import { ChainSyncService } from './chain-sync.service';
 import { FeeTopupService } from './fee-topup.service';
 import { BusinessChainService } from './business-chain.service';
+import { DepositAdminService } from './deposit-admin.service';
 import {
   AdminChainController,
   ChainWalletController,
@@ -21,6 +22,7 @@ import {
     ChainSyncService,
     FeeTopupService,
     BusinessChainService,
+    DepositAdminService,
     AlgorandWalletClient,
     RateService,
   ],

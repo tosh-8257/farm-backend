@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
+import { presentChannel } from '../payments/payment-channel';
 import { AuthService } from '../auth/auth.service';
 import { SecurityService } from '../security/security.service';
 import { authorizeSpend, SpendAuth } from '../security/authorize-spend';
@@ -409,6 +410,7 @@ export class BusinessFinanceService {
       id: t.id,
       reference: t.transaction_reference,
       type: t.transaction_type,
+      channel: presentChannel(t),
       status: txStatusLabel(t.status),
       direction: t.receiver_wallet_id === walletId ? 'in' : 'out',
       amount: Number(t.amount),

@@ -4,6 +4,7 @@ import { PrismaService } from '../database/prisma.service';
 import { CacheService } from '../common/cache/cache.service';
 import { paginationParams, paginate } from '../common/utils/pagination.util';
 import { HIDDEN_TRANSACTION_HISTORY_STATUSES } from '../common/utils/hidden-transaction-history-statuses';
+import { presentChannel } from '../payments/payment-channel';
 
 export interface TransactionUserSummary {
   id: string;
@@ -159,6 +160,7 @@ export class TransactionsService {
           users_sender: senderUser,
           users_recipient: recipientUser,
           merchant_business_name: merchantBusinessName,
+          channel: presentChannel(t),
         };
       }),
       meta: paginate(total, page, limit),
@@ -338,6 +340,7 @@ export class TransactionsService {
           (txn.currency === 'FARM' ? Number(txn.amount) : null),
         fiat_amount: fiatAmount == null ? null : Number(fiatAmount),
         fiat_currency: fiatCurrency,
+        channel: presentChannel(txn),
         payment_method:
           metadata.payment_method ??
           metadata.method ??

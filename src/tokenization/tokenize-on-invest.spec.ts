@@ -38,10 +38,17 @@ describe('onInvestConfig', () => {
       'TOKENIZE_ON_INVEST_ENABLED',
     );
   });
-  it('stays TestNet-only', () => {
+  it('does not turn on just because the wallet network is mainnet', () => {
     expect(
       onInvestConfig({ ...ENV, ALGORAND_NETWORK: 'mainnet' }).enabled,
     ).toBe(false);
+    expect(
+      onInvestConfig({
+        ...ENV,
+        TOKENIZATION_NETWORK: 'mainnet',
+        ALGORAND_NETWORK: 'mainnet',
+      }).enabled,
+    ).toBe(true);
   });
   it('on with all vars; delivery needs chain wallets', () => {
     expect(onInvestConfig(ENV)).toMatchObject({
@@ -70,8 +77,19 @@ function svcMocks(o: any = {}) {
   const project = {
     id: PID,
     status: 'draft',
+    project_name: 'Solar',
+    sector: 'energy',
+    summary: 'A farm',
+    description: 'Details',
+    use_of_funds: 'Equipment',
+    risk_factors: 'Weather',
+    instrument_type: 'revenue_share',
+    location: 'Nakuru',
     target_amount: 5000,
+    minimum_investment: 10,
     raised_amount: 0,
+    milestones: [{ amount: 5000 }],
+    documents: [{ kind: 'business_plan' }, { kind: 'financial_statements' }],
     token: null,
     ...o.project,
   };

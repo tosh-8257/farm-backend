@@ -106,19 +106,43 @@ export class AgentPaymentsService {
     return { enabled: this.enabled(), limits: this.limits() };
   }
 
-  private async businessName(id: string) {
-    const b = await this.prisma.businesses.findUnique({
-      where: { id },
-      select: {
-        id: true,
-        trading_name: true,
-        legal_name: true,
-        owner_user_id: true,
-        status: true,
-      },
-    });
+  private async businessName(identifier: string) {
+    const raw = identifier.trim();
+    if (!raw) throw new NotFoundException('Business not found');
+    const select = {
+      id: true,
+      public_code: true,
+      trading_name: true,
+      legal_name: true,
+      owner_user_id: true,
+      status: true,
+    } as const;
+    const b = /^[0-9a-f-]{36}$/i.test(raw)
+      ? await this.prisma.businesses.findUnique({ where: { id: raw }, select })
+      : await this.prisma.businesses.findUnique({
+          where: { public_code: raw.toUpperCase() },
+          select,
+        });
     if (!b) throw new NotFoundException('Business not found');
     return { ...b, name: b.trading_name || b.legal_name || 'Business' };
+  }
+
+  /** Safe preview for Allow-a-business. No owner contact details. Approved only. */
+  async lookupBusiness(identifier: string) {
+    const b = await this.businessName(identifier).catch((err) => {
+      if (err instanceof NotFoundException) return null;
+      throw err;
+    });
+    if (!b || b.status !== 'approved')
+      throw new NotFoundException('Business not found or not verified');
+    return {
+      data: {
+        business_id: b.id,
+        public_code: b.public_code,
+        name: b.name,
+        status: b.status,
+      },
+    };
   }
 
   // ------------------------- payment intents -------------------------

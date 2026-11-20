@@ -164,6 +164,10 @@ export class BusinessProjectsController {
   ) {
     return this.svc.get(u.id, id);
   }
+  @Delete(':id')
+  discard(@CurrentUser() u: any, @Param('id', ParseUUIDPipe) id: string) {
+    return this.svc.discard(u.id, id);
+  }
   @Patch(':id') update(
     @CurrentUser() u: any,
     @Param('id', ParseUUIDPipe) id: string,

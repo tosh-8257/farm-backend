@@ -44,7 +44,9 @@ export class PinDto {
   @IsOptional() @IsString() @MaxLength(512) device_fingerprint?: string;
 }
 export class MandateBody {
-  @IsUUID() business_id!: string;
+  @IsString()
+  @Matches(/^[A-Za-z0-9-]{8,36}$/)
+  business_id!: string;
   @IsNumber() @Min(1) per_tx_cap!: number;
   @IsNumber() @Min(1) daily_cap!: number;
   @IsNumber() @Min(1) monthly_cap!: number;
@@ -98,6 +100,13 @@ export class AgentPaymentsController {
 
   @Get('status') status() {
     return this.svc.status();
+  }
+
+  /** Name and id before the user confirms with a PIN. Authenticated. */
+  @Get('businesses/lookup')
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  lookupBusiness(@Query('code') code?: string) {
+    return this.svc.lookupBusiness(code ?? '');
   }
 
   @Get('intents/:id') intent(@Param('id', ParseUUIDPipe) id: string) {
