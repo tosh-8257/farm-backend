@@ -14,7 +14,10 @@ export class UploadExceptionFilter implements ExceptionFilter {
           ? 'Send at most 5 images. Use the field image, images, cover, photo, or file.'
           : 'The upload could not be read. Send a JPG, PNG, WebP, or HEIC image as multipart form data.';
     res.status(400).json({
+      success: false,
       statusCode: 400,
+      code: 'upload_rejected',
+      session_invalid: false,
       message,
       error: 'Bad Request',
     });

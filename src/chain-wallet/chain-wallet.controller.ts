@@ -4,6 +4,7 @@ import {
   Controller,
   Get,
   HttpCode,
+  Param,
   HttpException,
   Logger,
   Post,
@@ -25,6 +26,8 @@ import {
   parseBackfillHttpInput,
   redactOperatorMessage,
 } from '../ops/backfill-wallets-policy';
+import { limitsPayload } from '../crypto/limits-payload';
+import { DepositAdminService } from './deposit-admin.service';
 
 @ApiTags('Wallet - Algorand')
 @ApiBearerAuth('JWT')
@@ -34,6 +37,17 @@ export class ChainWalletController {
   constructor(private readonly svc: ChainWalletService) {}
   @Get('status') status() {
     return this.svc.status();
+  }
+  /** On-chain ALGO, USDC and FARM. Same shape as NOWPayments limits. No invented minimum. */
+  @Get('limits')
+  limits() {
+    return { data: onChainLimits() };
+  }
+  @Get('limits/:asset')
+  limit(@Param('asset') asset: string) {
+    const row = onChainLimit(asset);
+    if (!row) throw new BadRequestException('Unknown on-chain asset');
+    return { data: row };
   }
   @Get() mine(@CurrentUser() u: any) {
     return this.svc.mine(u.id);
@@ -109,7 +123,52 @@ export class AdminChainController {
   constructor(
     private readonly svc: ChainWalletService,
     private readonly sync: ChainSyncService,
+    private readonly deposits: DepositAdminService,
   ) {}
+  /** Read-only reconciliation list. Does not credit. */
+  @Get('deposits')
+  listDeposits(
+    @Query('tx_id') txId?: string,
+    @Query('status') status?: string,
+    @Query('address') address?: string,
+    @Query('asset') asset?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.deposits.list({ txId, status, address, asset, limit });
+  }
+  /** Indexer plus database. Does not write. */
+  @Get('deposits/lookup')
+  lookupDeposit(@Query('tx_id') txId?: string) {
+    return this.deposits.lookup(txId ?? '');
+  }
+  /**
+   * Verify on chain, then credit through the existing idempotent path.
+   * Dry is the default. This process does not call it.
+   */
+  @Post('deposits/reprocess')
+  @HttpCode(200)
+  reprocess(
+    @CurrentUser() u: any,
+    @Body()
+    body: { tx_id?: string; asset?: string; network?: string; dry?: boolean },
+  ) {
+    return this.deposits.reprocess({
+      txId: body?.tx_id ?? '',
+      asset: body?.asset,
+      network: body?.network,
+      dry: body?.dry !== false,
+      actorId: u?.id ?? null,
+    });
+  }
+  @Post('deposits/:id/note')
+  @HttpCode(200)
+  note(
+    @CurrentUser() u: any,
+    @Param('id') id: string,
+    @Body() body: { note?: string },
+  ) {
+    return this.deposits.setNote(id, body?.note ?? '', u?.id ?? null);
+  }
   @Get('outbox') outbox() {
     return this.sync.summary();
   }
@@ -211,4 +270,31 @@ export class AdminChainController {
       throw toPublicBackfillException(error);
     }
   }
+}
+
+const ON_CHAIN_ASSETS = ['algo', 'usdc', 'farm'] as const;
+
+function onChainLimit(asset: string) {
+  const code = asset.trim().toLowerCase();
+  if (!(ON_CHAIN_ASSETS as readonly string[]).includes(code)) return null;
+  return limitsPayload({
+    currency: code,
+    network: 'algorand',
+    min_amount: null,
+    max_amount: null,
+    min_usd: null,
+    max_usd: null,
+    source: 'farm_chain',
+    available: true,
+    message:
+      'No minimum or maximum is published for this on-chain asset. A confirmed transfer of the configured asset is credited when a live rate exists. Null is not zero.',
+  });
+}
+
+function onChainLimits() {
+  return {
+    network: 'algorand',
+    assets: ON_CHAIN_ASSETS.map((asset) => onChainLimit(asset)),
+    fetched_at: new Date().toISOString(),
+  };
 }

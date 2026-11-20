@@ -7,6 +7,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
+import { newBusinessPublicCode } from './business-code';
 import { paginationParams, paginate } from '../common/utils/pagination.util';
 import {
   SaveBusinessDraftDto,
@@ -120,6 +121,7 @@ export class BusinessService {
     const business = await this.prisma.businesses.create({
       data: {
         owner_user_id: userId,
+        public_code: newBusinessPublicCode(),
         merchant_id: merchant.id,
         legal_name: merchant.business_name,
         trading_name: merchant.business_name,

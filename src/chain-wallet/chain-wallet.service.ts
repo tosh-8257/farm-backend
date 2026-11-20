@@ -19,6 +19,11 @@ import {
   FARM_DECIMALS,
   USDC_DECIMALS,
 } from './chain-config';
+import {
+  cursorStartRound,
+  depositLookbackRounds,
+  stuckDepositMinutes,
+} from './deposit-watch';
 import { sealSecret, walletSigner } from './key-vault';
 import { AlgoSigner } from './signer';
 import { chainReadiness } from './readiness';
@@ -366,6 +371,7 @@ export class ChainWalletService {
     try {
       await this.pollDeposits();
       await this.creditPending();
+      await this.alertStuckDeposits();
     } catch (e: any) {
       this.log.warn(`Deposit poll failed: ${e?.message ?? e}`);
     } finally {
@@ -408,10 +414,14 @@ export class ChainWalletService {
         where: { key },
       });
       if (!cur) {
-        // start from "now": nothing before go-live is backfilled
-        const r = await this.chain.currentRound();
+        // Default: start at the current round (no backfill).
+        // CHAIN_DEPOSIT_LOOKBACK_ROUNDS, when set, walks back a bounded
+        // number of rounds on this first cursor only. It does not rewind
+        // an existing cursor. Default 0 leaves production behaviour unchanged.
+        const head = await this.chain.currentRound();
+        const start = cursorStartRound(head, depositLookbackRounds());
         cur = await this.prisma.chain_sync_state.create({
-          data: { key, last_round: r },
+          data: { key, last_round: start },
         });
       }
       const txs = await this.chain.transfersSince(a.id, cur.last_round);
@@ -497,9 +507,9 @@ export class ChainWalletService {
     });
     const head = await this.chain.currentRound();
     if (!cur) {
-      // start from "now": nothing before go-live is backfilled
+      const start = cursorStartRound(head, depositLookbackRounds());
       await this.prisma.chain_sync_state.create({
-        data: { key, last_round: head },
+        data: { key, last_round: start },
       });
       return { seen: 0, recorded: 0 };
     }
@@ -1583,5 +1593,32 @@ export class ChainWalletService {
         ),
       },
     });
+  }
+
+  /**
+   * Log once when a detected deposit has not been credited in time.
+   * Does not credit and does not change status.
+   */
+  async alertStuckDeposits() {
+    const minutes = stuckDepositMinutes();
+    const cutoff = new Date(Date.now() - minutes * 60_000);
+    const stuck = await this.prisma.chain_deposits.findMany({
+      where: {
+        status: { in: ['detected', 'pending_rate'] },
+        created_at: { lt: cutoff },
+        alerted_at: null,
+      },
+      select: { id: true, tx_id: true, asset_symbol: true, status: true },
+      take: 50,
+    });
+    if (!stuck.length) return { alerted: 0 };
+    this.log.warn(
+      `Stuck chain deposits: ${stuck.length} older than ${minutes}m and not credited`,
+    );
+    await this.prisma.chain_deposits.updateMany({
+      where: { id: { in: stuck.map((row) => row.id) }, alerted_at: null },
+      data: { alerted_at: new Date() },
+    });
+    return { alerted: stuck.length };
   }
 }

@@ -476,10 +476,11 @@ describe('Project funds flow – timeline', () => {
         released_amount: 400,
         returns_deposited: 100,
         returns_distributed: 50,
+        consolidation_fee_at: new Date('2026-01-01T00:00:00Z'),
       },
       spends: [
         {
-          created_at: new Date(),
+          created_at: new Date('2026-01-02T00:00:00Z'),
           amount: 400,
           recipient_business_id: 'supplier',
           target_kind: 'invoice',
@@ -489,7 +490,7 @@ describe('Project funds flow – timeline', () => {
       ],
       returns: [
         {
-          created_at: new Date(),
+          created_at: new Date('2026-01-03T00:00:00Z'),
           amount: 100,
           source: 'manual',
           note: 'Harvest',
@@ -498,7 +499,7 @@ describe('Project funds flow – timeline', () => {
       dists: [
         {
           status: 'paid',
-          updated_at: new Date(),
+          updated_at: new Date('2026-01-04T00:00:00Z'),
           paid_amount: 49,
           fee: 1,
           kind: 'rental',

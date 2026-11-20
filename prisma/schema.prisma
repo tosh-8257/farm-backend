@@ -271,6 +271,8 @@ model investment_projects {
   /// Admin pause of automatic spends/payouts for this project
   funds_paused            Boolean   @default(false)
   funds_paused_reason     String?   @db.VarChar(300)
+  /// Set when the owner discards a draft. The row is kept.
+  discarded_at            DateTime?            @db.Timestamptz(6)
   milestones             project_milestones[]
   token                  project_tokens?
   business               businesses?          @relation("business_projects", fields: [business_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -500,6 +502,8 @@ model transactions {
   exchange_rate                                    Decimal?                  @db.Decimal(30, 8)
   description                                      String?
   metadata                                         Json?
+  /// qr | payment_link | invoice | nfc | p2p | chain_deposit | nowpayments | paystack. Null when unknown.
+  payment_channel                                  String?                   @db.VarChar(32)
   ip_address                                       String?                   @db.VarChar(100)
   device_info                                      String?
   blockchain_tx_hash                               String?
@@ -525,6 +529,7 @@ model transactions {
   @@index([sender_wallet_id, created_at(sort: Desc)], map: "idx_transactions_sender_created")
   @@index([status], map: "idx_transactions_status")
   @@index([transaction_type], map: "idx_transactions_type")
+  @@index([payment_channel], map: "idx_transactions_payment_channel")
 }
 
 model payment_receipts {
@@ -1165,6 +1170,8 @@ enum business_person_role {
 
 model businesses {
   id                      String                       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// Optional short code for "Allow a business". UUID `id` stays the primary key.
+  public_code             String?                      @unique @db.VarChar(16)
   owner_user_id           String                       @unique @db.Uuid
   merchant_id             String?                      @unique @db.Uuid
   /// Separate merchant settlement wallet (BUSINESS_WALLET_ENABLED). NULL = legacy: receipts land in the owner's personal wallet.
@@ -1782,6 +1789,10 @@ model chain_deposits {
   transaction_id     String?   @db.Uuid
   credited_at        DateTime? @db.Timestamptz(6)
   error              String?
+  /// Support note. Never a substitute for an on-chain credit.
+  resolution_note    String?
+  /// Set when a stuck detected/pending_rate row has been alerted. Not a credit.
+  alerted_at         DateTime? @db.Timestamptz(6)
   created_at         DateTime  @default(now()) @db.Timestamptz(6)
 
   @@unique([network, tx_id, asset_id])

@@ -47,12 +47,8 @@ import {
   OTP_EXPIRY_MINUTES,
   OTP_MAX_ATTEMPTS,
 } from '../common/constants';
-import {
-  DEFAULT_REFRESH_TTL,
-  DEFAULT_REFRESH_TTL_MS,
-  longLivedSessionsEnabled,
-  parseDurationMs,
-} from './session-policy';
+import { longLivedSessionsEnabled } from './session-policy';
+import { resolveAccessTtl, resolveRefreshTtl } from './token-ttl';
 import { scheduleCustodialWallet } from '../chain-wallet/schedule-custodial-wallet';
 import {
   claimPushDevice,
@@ -1717,15 +1713,19 @@ export class AuthService implements OnModuleInit {
 
   /** Public so the app can decide between SMS and biometric unlock. */
   sessionConfig() {
-    const life = longLivedSessionsEnabled() ? this.refreshLifetime() : null;
+    const access = resolveAccessTtl(this.ttlEnv());
+    const refresh = resolveRefreshTtl(
+      this.ttlEnv(),
+      longLivedSessionsEnabled(),
+    );
     return {
       data: {
         long_lived_sessions: longLivedSessionsEnabled(),
-        access_expires_in: this.accessExpiresSeconds(),
-        refresh_expires_in: life?.seconds ?? null,
-        refresh_ttl: life
-          ? this.cfg.get<string>('JWT_REFRESH_EXPIRES') || DEFAULT_REFRESH_TTL
-          : null,
+        access_expires_in: access.seconds,
+        access_ttl_source: access.source,
+        refresh_expires_in: refresh.seconds,
+        refresh_ttl: refresh.spec,
+        refresh_ttl_source: refresh.source,
         biometric_reauth:
           longLivedSessionsEnabled() &&
           this.deviceBinding?.isEnabled() === true,
@@ -2470,10 +2470,12 @@ export class AuthService implements OnModuleInit {
     const jti = randomBytes(16).toString('hex');
     const payload = { sub: userId, role, wallet_id: walletId, jti };
     const refresh = this.refreshLifetime();
+    const accessTtl = resolveAccessTtl(this.ttlEnv())
+      .spec as `${number}${'s' | 'm' | 'h' | 'd'}`;
     const [access_token, refresh_token] = await Promise.all([
       this.jwt.signAsync(payload, {
         secret: accessSecret,
-        expiresIn: this.cfg.get('JWT_ACCESS_EXPIRES', '15m'),
+        expiresIn: accessTtl,
       }),
       refresh.expiresIn
         ? this.jwt.signAsync(payload, {
@@ -2491,28 +2493,38 @@ export class AuthService implements OnModuleInit {
     };
   }
 
+  private ttlEnv() {
+    const env: Record<string, string | undefined> = {};
+    for (const key of [
+      'JWT_ACCESS_EXPIRES',
+      'JWT_EXPIRATION',
+      'JWT_REFRESH_EXPIRES',
+      'JWT_REFRESH_EXPIRATION',
+    ]) {
+      env[key] = this.cfg.get<string>(key) ?? process.env[key];
+    }
+    return env;
+  }
+
   /** Null expiry keeps the historical persistent refresh token. */
   private refreshLifetime(): {
     expiresIn?: string;
     expiresAt: Date | null;
     seconds: number | null;
   } {
-    if (!longLivedSessionsEnabled()) {
+    const life = resolveRefreshTtl(this.ttlEnv(), longLivedSessionsEnabled());
+    if (life.ms == null || !life.spec) {
       return { expiresAt: null, seconds: null };
     }
-    const spec =
-      this.cfg.get<string>('JWT_REFRESH_EXPIRES') || DEFAULT_REFRESH_TTL;
-    const ms = parseDurationMs(spec, DEFAULT_REFRESH_TTL_MS);
     return {
-      expiresIn: spec,
-      expiresAt: new Date(Date.now() + ms),
-      seconds: Math.floor(ms / 1000),
+      expiresIn: life.spec,
+      expiresAt: new Date(Date.now() + life.ms),
+      seconds: life.seconds,
     };
   }
 
   private accessExpiresSeconds() {
-    const spec = this.cfg.get<string>('JWT_ACCESS_EXPIRES') || '15m';
-    return Math.floor(parseDurationMs(spec, 15 * 60_000) / 1000);
+    return resolveAccessTtl(this.ttlEnv()).seconds;
   }
 
   private sessionMeta() {

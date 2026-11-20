@@ -108,7 +108,7 @@ export class WalletsService {
     },
     ip: string,
     /** Internal only (never from request bodies): merchant flows charge the receiving merchant. */
-    opts?: { merchantFee?: boolean },
+    opts?: { merchantFee?: boolean; paymentChannel?: string },
   ) {
     if (dto.amount <= 0)
       throw new BadRequestException('Amount must be greater than zero');
@@ -254,6 +254,7 @@ export class WalletsService {
           sender_wallet_id: senderWallet.id,
           receiver_wallet_id: receiverWalletId,
           transaction_type: 'transfer',
+          payment_channel: opts?.paymentChannel ?? null,
           status: 'processing',
           amount: dto.amount,
           fee,
@@ -264,6 +265,7 @@ export class WalletsService {
           ip_address: ip,
           metadata: {
             user_id: senderId,
+            ...(opts?.paymentChannel ? { channel: opts.paymentChannel } : {}),
             ...(merchantFee > 0 ? { merchant_fee: merchantFee } : {}),
           },
         },

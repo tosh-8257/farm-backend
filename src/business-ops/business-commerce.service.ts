@@ -683,7 +683,11 @@ export class BusinessCommerceService {
         description,
       },
       ip,
-      { merchantFee: true },
+      {
+        merchantFee: true,
+        paymentChannel:
+          source === 'invoice' || source === 'payment_link' ? source : undefined,
+      },
     );
     await this.prisma.business_payments.create({
       data: {

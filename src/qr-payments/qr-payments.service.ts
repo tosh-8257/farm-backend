@@ -8,6 +8,7 @@ import {
 import { FeesService } from '../fees/fees.service';
 import { computeFee, ruleFor } from '../fees/fee-defaults';
 import { Prisma } from '@prisma/client';
+import { PaymentChannel } from '../payments/payment-channel';
 import { randomUUID } from 'crypto';
 import { CacheService } from '../common/cache/cache.service';
 import { CurrencyConversionService } from '../currency/currency-conversion.service';
@@ -180,9 +181,16 @@ export class QrPaymentsService {
       }
     }
 
+    const paymentChannel: PaymentChannel =
+      opts?.businessDocument === 'invoice'
+        ? 'invoice'
+        : opts?.businessDocument === 'payment_link'
+          ? 'payment_link'
+          : 'qr';
     const metadata: Prisma.InputJsonObject = {
       type: 'qr_sale',
       isQrSale: true,
+      channel: paymentChannel,
       qr_guest_payment: true,
       merchant_id: merchant.id,
       merchantId: merchant.id,
@@ -211,6 +219,7 @@ export class QrPaymentsService {
           transaction_reference: reference,
           receiver_wallet_id: wallet.id,
           transaction_type: 'merchant_payment',
+          payment_channel: paymentChannel,
           status: 'pending',
           amount: amountFarm,
           fee: 0,

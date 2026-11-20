@@ -10,6 +10,7 @@ import { PrismaService } from '../database/prisma.service';
 import { BusinessAccessService } from '../business-ops/business-access.service';
 import { AlgorandAsaClient } from './algorand-asa.client';
 import { algorandConfig, explorerAsset, explorerTx } from './algorand-config';
+import { projectApplicationGaps } from '../project-marketplace/project-rules';
 import { NotificationsService } from '../notifications/notifications.service';
 import { notifyProjectOwner } from '../project-marketplace/project-owner-notify';
 import { TokenBuybackService, buybackEnabled } from './token-buyback.service';
@@ -50,6 +51,7 @@ export class TokenizationService {
         enabled: c.enabled,
         on_invest_enabled: onInvestConfig().enabled,
         network: c.network,
+        network_source: c.network_source,
         missing: c.missing,
         problems: c.problems,
       },
@@ -112,9 +114,14 @@ export class TokenizationService {
     const actor = await this.access.resolve(userId, 'projects:manage');
     const p = await this.prisma.investment_projects.findFirst({
       where: { id: projectId, business_id: actor.business.id },
-      include: { token: true },
+      include: {
+        token: true,
+        documents: { select: { kind: true } },
+        milestones: { select: { amount: true } },
+      },
     });
-    if (!p) throw new NotFoundException('Project not found');
+    if (!p || (p as { discarded_at?: Date | null }).discarded_at)
+      throw new NotFoundException('Project not found');
     if (onInvest) {
       if (!onInvestConfig().enabled)
         throw new BadRequestException(
@@ -134,6 +141,13 @@ export class TokenizationService {
       if (!(Number(p.raised_amount ?? 0) >= UNIT_PRICE))
         throw new BadRequestException('Nothing was raised for this project');
     }
+    const gaps = projectApplicationGaps(p);
+    if (gaps.length)
+      throw new BadRequestException({
+        message:
+          'Finish the project application before submitting for tokenization',
+        missing: gaps,
+      });
     if (p.token && p.token.status !== 'rejected')
       throw new BadRequestException('Tokenization was already requested');
     const name = dto.asset_name?.trim();
@@ -169,6 +183,18 @@ export class TokenizationService {
       : await this.prisma.project_tokens.create({
           data: { ...data, project_id: projectId },
         });
+    await this.prisma.project_reviews
+      ?.create({
+        data: {
+          project_id: projectId,
+          actor_id: userId,
+          action: 'tokenization_requested',
+          from_status: p.status ?? 'draft',
+          to_status: p.status ?? 'draft',
+          notes: `mode=${onInvest ? 'on_invest' : 'post_funding'} network=${algorandConfig().network}`,
+        },
+      })
+      ?.catch(() => undefined);
     await this.tellOwner(
       projectId,
       'Tokenization submitted',

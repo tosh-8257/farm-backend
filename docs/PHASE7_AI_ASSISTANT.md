@@ -18,7 +18,7 @@ The assistant works with any OpenAI-compatible `/chat/completions` endpoint that
 It has read-only tools for the user's wallet, transactions, investments, business invoices (only for businesses where the user is an active member), project holdings, and AI spend settings. Every query is scoped to the JWT user, so the model cannot pick a different user.
 
 ## What it can do (limited spending)
-- AI payments are **off** until the user enables them and sets a per-transaction cap, a daily cap, and the allowed actions. The only allowed action today is `send_farm`. The daily cap can be at most 100,000 FARM.
+- AI payments are **off** until the user enables them and sets a per-transaction cap, a daily cap, and the allowed actions. The user may set any positive limits. `AI_MAX_DAILY_FARM` and `AI_MAX_PER_TX_FARM` are optional platform ceilings; when unset, `platform_daily_ceiling` and `platform_per_tx_ceiling` are null. A payment still cannot exceed the available wallet balance, and nothing is sent until the user confirms with a PIN or biometrics.
 - The `propose_payment` tool only creates a **pending** request. The request expires after 10 minutes.
 - The user confirms the request in the app with their **PIN** (`POST /v1/ai/actions/:id/confirm`). Caps and the allowlist are checked again at that point. Execution goes through `WalletsService.sendFunds`, so the normal PIN check, limits, fees and ledger logic all apply. Biometric bypass is never used.
 - Pending requests count toward the daily cap.

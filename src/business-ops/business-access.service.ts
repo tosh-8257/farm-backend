@@ -10,6 +10,7 @@ import {
   can,
   permissionsFor,
 } from './permissions';
+import { assignBusinessPublicCode } from '../business/business-code';
 
 export interface BusinessActor {
   userId: string;
@@ -21,6 +22,7 @@ export interface BusinessActor {
     status: string;
     legal_name: string | null;
     trading_name: string | null;
+    public_code: string | null;
   };
 }
 
@@ -43,6 +45,7 @@ export class BusinessAccessService {
       status: true,
       legal_name: true,
       trading_name: true,
+      public_code: true,
     } as const;
     let actor: BusinessActor | null = null;
     const owned = await this.prisma.businesses.findUnique({
@@ -70,6 +73,12 @@ export class BusinessAccessService {
     }
     if (!actor)
       throw new NotFoundException('No approved business account found');
+    if (!actor.business.public_code) {
+      actor.business.public_code = await assignBusinessPublicCode(
+        this.prisma,
+        actor.business.id,
+      );
+    }
     if (perm && !can(actor.role, perm))
       throw new ForbiddenException(
         'Your business role does not allow this action',
@@ -82,6 +91,7 @@ export class BusinessAccessService {
     return {
       data: {
         business_id: a.business.id,
+        public_code: a.business.public_code ?? null,
         name: a.business.trading_name || a.business.legal_name,
         role: a.role,
         permissions: permissionsFor(a.role),

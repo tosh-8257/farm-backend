@@ -23,6 +23,7 @@ import { PaystackTransferInitiationError } from '../paystack/paystack.service';
 import { Cron } from '@nestjs/schedule';
 import { NowpaymentsService } from '../nowpayments/nowpayments.service';
 import { assertCoinAmount, resolveCoinBounds } from '../crypto/coin-limits';
+import { limitsPayload } from '../crypto/limits-payload';
 
 const MIN_NOWPAYMENTS_CRYPTO_WITHDRAWAL_USD = 2;
 
@@ -311,7 +312,20 @@ export class WithdrawService {
       );
     }
     const minimum = await this.nowpayments.getPayoutMinimum(code);
-    return { data: resolveCoinBounds(code, minimum) };
+    const bounds = resolveCoinBounds(code, minimum);
+    const maxUsd = Number(process.env.CRYPTO_WITHDRAWAL_MAX_USD);
+    return {
+      data: limitsPayload({
+        currency: bounds.currency,
+        network: bounds.currency,
+        min_amount: bounds.min_amount,
+        max_amount: bounds.max_amount,
+        min_usd: MIN_NOWPAYMENTS_CRYPTO_WITHDRAWAL_USD,
+        max_usd: Number.isFinite(maxUsd) && maxUsd > 0 ? maxUsd : null,
+        source: bounds.min_source ?? 'provider',
+        available: true,
+      }),
+    };
   }
 
   async createNowpaymentsCryptoWithdrawal(

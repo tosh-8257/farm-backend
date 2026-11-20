@@ -15,6 +15,7 @@ import {
   DOCUMENT_VISIBILITY,
   EDITABLE,
   INSTRUMENT_TYPES,
+  projectApplicationGaps,
   REQUIRED_DOCUMENTS,
   SECTORS,
 } from './project-rules';
@@ -162,7 +163,7 @@ export class BusinessProjectsService {
         },
       },
     });
-    if (!p) throw new NotFoundException('Project not found');
+    if (!p || p.discarded_at) throw new NotFoundException('Project not found');
     return { actor, p };
   }
 
@@ -177,7 +178,7 @@ export class BusinessProjectsService {
   async list(userId: string) {
     const actor = await this.access.resolve(userId, 'projects:read');
     const rows = await this.prisma.investment_projects.findMany({
-      where: { business_id: actor.business.id },
+      where: { business_id: actor.business.id, discarded_at: null },
       orderBy: { created_at: 'desc' },
     });
     return { data: rows.map((r) => this.shape(r)) };
@@ -353,40 +354,7 @@ export class BusinessProjectsService {
     const { p } = await this.own(userId, id, 'projects:manage');
     if (!EDITABLE.includes(p.status ?? ''))
       throw new BadRequestException('Project has already been submitted');
-    const missing: string[] = [];
-    for (const f of [
-      'project_name',
-      'sector',
-      'summary',
-      'description',
-      'use_of_funds',
-      'risk_factors',
-      'instrument_type',
-      'location',
-    ])
-      if (!(p as any)[f]) missing.push(f);
-    if (!p.target_amount || Number(p.target_amount) <= 0)
-      missing.push('target_amount');
-    if (!p.minimum_investment || Number(p.minimum_investment) <= 0)
-      missing.push('minimum_investment');
-    if (
-      p.maximum_investment &&
-      Number(p.maximum_investment) < Number(p.minimum_investment)
-    )
-      missing.push('maximum_investment (below minimum)');
-    if (Number(p.minimum_investment ?? 0) > Number(p.target_amount))
-      missing.push('minimum_investment (above target)');
-    const ms = p.milestones ?? [];
-    if (!ms.length) missing.push('milestones');
-    else if (
-      Math.abs(
-        ms.reduce((t, m) => t + Number(m.amount), 0) - Number(p.target_amount),
-      ) > 0.005
-    )
-      missing.push('milestones (amounts must add up to the target)');
-    const kinds = new Set(p.documents.map((d) => d.kind));
-    for (const k of REQUIRED_DOCUMENTS)
-      if (!kinds.has(k)) missing.push(`document:${k}`);
+    const missing = projectApplicationGaps(p);
     if (missing.length)
       throw new BadRequestException({
         message: 'Project is incomplete',
@@ -416,6 +384,47 @@ export class BusinessProjectsService {
       `${p.project_name} is in the review queue. It appears on the marketplace only after it is approved and listed.`,
     );
     return { data: { id, status: 'submitted' } };
+  }
+
+  /**
+   * Owner discards their own draft only. The row stays (discarded_at) so the
+   * audit trail remains. Submitted, funded, tokenized, or invested projects
+   * cannot be deleted here.
+   */
+  async discard(userId: string, id: string) {
+    const { p } = await this.own(userId, id, 'projects:manage');
+    if ((p.status ?? '') !== 'draft' || p.discarded_at)
+      throw new BadRequestException(
+        'Only a draft project can be discarded. Submitted projects need a review decision.',
+      );
+    if (Number(p.raised_amount ?? 0) > 0)
+      throw new BadRequestException(
+        'This draft has recorded funds and cannot be discarded',
+      );
+    const [investments, token] = await Promise.all([
+      this.prisma.user_investments.count({ where: { project_id: id } }),
+      this.prisma.project_tokens.findUnique({ where: { project_id: id } }),
+    ]);
+    if (investments > 0 || token)
+      throw new BadRequestException(
+        'This draft is linked to an investment or tokenization record and cannot be discarded',
+      );
+    const claimed = await this.prisma.investment_projects.updateMany({
+      where: { id, status: 'draft', discarded_at: null },
+      data: { discarded_at: new Date(), status: 'discarded' },
+    });
+    if (!claimed.count)
+      throw new BadRequestException('This draft was already discarded');
+    await this.prisma.project_reviews.create({
+      data: {
+        project_id: id,
+        actor_id: userId,
+        action: 'discard',
+        from_status: 'draft',
+        to_status: 'discarded',
+      },
+    });
+    return { data: { id, status: 'discarded' } };
   }
 
   /** Replace the milestone plan (only while the project is editable). */

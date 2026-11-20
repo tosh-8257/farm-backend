@@ -35,6 +35,62 @@ export const REQUIRED_DOCUMENTS = [
   'business_plan',
   'financial_statements',
 ] as const;
+
+/**
+ * Fields and uploads required before submit-for-review or tokenization.
+ * Tokenization is not a shortcut around an unfinished application.
+ */
+export function projectApplicationGaps(p: {
+  project_name?: string | null;
+  sector?: string | null;
+  summary?: string | null;
+  description?: string | null;
+  use_of_funds?: string | null;
+  risk_factors?: string | null;
+  instrument_type?: string | null;
+  location?: string | null;
+  target_amount?: unknown;
+  minimum_investment?: unknown;
+  maximum_investment?: unknown;
+  milestones?: { amount?: unknown }[] | null;
+  documents?: { kind?: string | null }[] | null;
+}): string[] {
+  const missing: string[] = [];
+  for (const f of [
+    'project_name',
+    'sector',
+    'summary',
+    'description',
+    'use_of_funds',
+    'risk_factors',
+    'instrument_type',
+    'location',
+  ] as const)
+    if (!p[f]) missing.push(f);
+  if (!p.target_amount || Number(p.target_amount) <= 0)
+    missing.push('target_amount');
+  if (!p.minimum_investment || Number(p.minimum_investment) <= 0)
+    missing.push('minimum_investment');
+  if (
+    p.maximum_investment &&
+    Number(p.maximum_investment) < Number(p.minimum_investment)
+  )
+    missing.push('maximum_investment (below minimum)');
+  if (Number(p.minimum_investment ?? 0) > Number(p.target_amount))
+    missing.push('minimum_investment (above target)');
+  const ms = p.milestones ?? [];
+  if (!ms.length) missing.push('milestones');
+  else if (
+    Math.abs(
+      ms.reduce((t, m) => t + Number(m.amount), 0) - Number(p.target_amount),
+    ) > 0.005
+  )
+    missing.push('milestones (amounts must add up to the target)');
+  const kinds = new Set((p.documents ?? []).map((d) => d.kind));
+  for (const k of REQUIRED_DOCUMENTS)
+    if (!kinds.has(k)) missing.push(`document:${k}`);
+  return missing;
+}
 export const DOCUMENT_VISIBILITY = ['public', 'investors', 'admin'] as const;
 
 /** Project lifecycle. Every step after `submitted` is an explicit admin action. */

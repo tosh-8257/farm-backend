@@ -245,7 +245,9 @@ export class NfcPayService {
           description: row.description || 'Tap to pay',
         },
         ip,
-        row.kind === 'merchant' ? { merchantFee: true } : undefined,
+        row.kind === 'merchant'
+          ? { merchantFee: true, paymentChannel: 'nfc' }
+          : { paymentChannel: 'p2p' },
       );
     } catch (e) {
       // Release the claim so a wrong PIN or low balance can be retried before expiry.
