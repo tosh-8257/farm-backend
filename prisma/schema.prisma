@@ -2627,3 +2627,43 @@ model external_store_sync_jobs {
 
   @@index([connection_id])
 }
+
+model cargo_rates {
+  id         String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  from_zone  String  @db.VarChar(40)
+  to_zone    String  @db.VarChar(40)
+  min_kg     Decimal @db.Decimal(10, 3)
+  max_kg     Decimal @db.Decimal(10, 3)
+  price_farm Decimal @db.Decimal(30, 8)
+  active     Boolean @default(true)
+
+  @@index([from_zone, to_zone, active])
+}
+
+model cargo_shipments {
+  id                     String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id                String   @db.Uuid
+  idempotency_key        String   @db.VarChar(120)
+  from_zone              String   @db.VarChar(40)
+  to_zone                String   @db.VarChar(40)
+  weight_kg              Decimal  @db.Decimal(10, 3)
+  price_farm             Decimal  @db.Decimal(30, 8)
+  status                 String   @default("quoted") @db.VarChar(20)
+  payment_transaction_id String?  @db.Uuid
+  created_at             DateTime @default(now()) @db.Timestamptz(6)
+  events                 cargo_shipment_events[]
+
+  @@unique([user_id, idempotency_key])
+  @@index([status])
+}
+
+model cargo_shipment_events {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  shipment_id String   @db.Uuid
+  status      String   @db.VarChar(20)
+  note        String?
+  created_at  DateTime @default(now()) @db.Timestamptz(6)
+  shipment    cargo_shipments @relation(fields: [shipment_id], references: [id], onDelete: Cascade)
+
+  @@index([shipment_id, created_at])
+}
