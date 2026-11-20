@@ -54,6 +54,10 @@ import { AiAssistantModule } from './ai-assistant/ai-assistant.module';
 import { AgentPaymentsModule } from './agent-payments/agent-payments.module';
 import { X402Module } from './x402/x402.module';
 import { TravelModule } from './travel/travel.module';
+import { PlatformModule } from './platform/platform.module';
+import { CommerceModule } from './commerce/commerce.module';
+import { CargoModule } from './cargo/cargo.module';
+import { DispatchModule } from './dispatch/dispatch.module';
 import { ExpiryTasksService } from './common/tasks/expiry-tasks.service';
 import { IvorypayRetiredMiddleware } from './common/middleware/ivorypay-retired.middleware';
 import { IdempotencyMiddleware } from './common/middleware/idempotency.middleware';
@@ -134,6 +138,10 @@ import { IdempotencyMiddleware } from './common/middleware/idempotency.middlewar
     BusinessApiModule,
     AiAssistantModule,
     TravelModule,
+    PlatformModule,
+    CommerceModule,
+    CargoModule,
+    DispatchModule,
     AgentPaymentsModule,
     X402Module,
     SettingsModule,
