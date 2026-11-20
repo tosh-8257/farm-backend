@@ -51,6 +51,12 @@ function mkPrisma(perm: any = null, committed = 0) {
       findMany: jest.fn(),
       deleteMany: jest.fn(),
     },
+    wallets: {
+      findFirst: jest.fn().mockResolvedValue({
+        balance: 1_000_000,
+        locked_balance: 0,
+      }),
+    },
   } as any;
 }
 const cfg = (env: Record<string, string>) =>
@@ -235,6 +241,53 @@ describe('AiAssistantService', () => {
         allowed_actions: ['approve_business'],
       }),
     ).rejects.toThrow('Unknown action');
+  });
+
+  it('accepts any positive user cap when no platform ceiling is set', async () => {
+    const pr = mkPrisma();
+    const s = mk(pr);
+    await s.updatePermissions(U, {
+      enabled: true,
+      per_tx_cap: 5_000_000,
+      daily_cap: 9_000_000,
+      allowed_actions: ['send_farm'],
+    });
+    expect(pr.ai_spend_permissions.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({
+          per_tx_cap: 5_000_000,
+          daily_cap: 9_000_000,
+        }),
+      }),
+    );
+    expect(pr.ai_audit_log.create).toHaveBeenCalled();
+  });
+
+  it('refuses a confirmed payment above the available balance and audits the failure', async () => {
+    const pr = mkPrisma(PERM);
+    pr.wallets.findFirst.mockResolvedValue({ balance: 40, locked_balance: 10 });
+    pr.store.req = {
+      id: 'req-1',
+      action: 'send_farm',
+      user_id: U,
+      status: 'pending',
+      amount: 100,
+      recipient_identifier: 'jane',
+      description: null,
+      expires_at: new Date(Date.now() + 60000),
+      created_at: new Date(),
+    };
+    const wallets = { sendFunds: jest.fn() };
+    const s = mk(pr, ON, undefined, wallets);
+    await expect(
+      s.confirmAction(U, 'req-1', '1234', '1.1.1.1'),
+    ).rejects.toThrow('available balance');
+    expect(wallets.sendFunds).not.toHaveBeenCalled();
+    expect(pr.ai_audit_log.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ event: 'action_failed' }),
+      }),
+    );
   });
 
   it('confirm requires the owner, executes via WalletsService with the PIN, and audits', async () => {

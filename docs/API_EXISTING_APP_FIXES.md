@@ -49,7 +49,9 @@ Unknown or not-approved businesses return 404 `Business not found or not verifie
 
 ## Mkulima caps
 
-`GET /api/v1/ai/permissions` adds `platform_per_tx_ceiling` and `platform_daily_ceiling`. The old hardcoded 100,000 daily cap is gone. A per-user cap above the ceiling is rejected with the ceiling in the message. Ceiling env: `AI_MAX_DAILY_FARM` (default 1000000), `AI_MAX_PER_TX_FARM` (default the daily ceiling). PIN confirmation is unchanged.
+`GET /api/v1/ai/permissions` adds `platform_per_tx_ceiling` and `platform_daily_ceiling`. Both are `null` when no platform ceiling is configured, which means the user may set any positive per-payment and daily limit. `AI_MAX_PER_TX_FARM` and `AI_MAX_DAILY_FARM` are optional. A positive value caps that side only. A cap above a configured ceiling is rejected and the message names the ceiling. There is no default numeric ceiling.
+
+The user’s own `per_tx_cap` and `daily_cap` are still enforced, and `per_tx_cap` cannot exceed `daily_cap`. At confirm time the payment amount must also be within the available wallet balance (balance minus locked funds). Confirmation still requires a PIN or biometric step-up. Proposals, confirmations, failures, and permission changes are written to `ai_audit_log`. Nothing is sent until that confirmation.
 
 ## Crypto limits
 

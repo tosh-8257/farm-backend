@@ -20,7 +20,7 @@ import { AiToolsService } from './ai-tools.service';
 import { TravelService } from '../travel/travel.service';
 import { AgentPaymentsService } from '../agent-payments/agent-payments.service';
 import { HotelsService } from '../travel/hotels.service';
-import { aiPlatformCeiling } from './ai-limits';
+import { aiPlatformCeiling, exceedsAvailableBalance } from './ai-limits';
 
 export const AI_ACTIONS = [
   'send_farm',
@@ -440,11 +440,11 @@ export class AiAssistantService {
         'Per-transaction cap cannot exceed the daily cap',
       );
     const ceiling = aiPlatformCeiling();
-    if (dto.per_tx_cap > ceiling.per_tx)
+    if (ceiling.per_tx != null && dto.per_tx_cap > ceiling.per_tx)
       throw new BadRequestException(
         `Per-payment cap cannot exceed the platform ceiling of ${ceiling.per_tx} FARM`,
       );
-    if (dto.daily_cap > ceiling.daily)
+    if (ceiling.daily != null && dto.daily_cap > ceiling.daily)
       throw new BadRequestException(
         `Daily cap cannot exceed the platform ceiling of ${ceiling.daily} FARM (AI_MAX_DAILY_FARM)`,
       );
@@ -490,6 +490,21 @@ export class AiAssistantService {
       cancelled_pending: cancelled.count,
     });
     return this.getPermissions(userId);
+  }
+
+  /** A payment cannot exceed spendable FARM, even when the user's cap is higher. */
+  private async assertWithinBalance(userId: string, amount: number) {
+    const wallet = await this.prisma.wallets.findFirst({
+      where: { user_id: userId, is_active: true, wallet_type: 'user' },
+      select: { balance: true, locked_balance: true },
+    });
+    const available = wallet
+      ? Number(wallet.balance) - Number(wallet.locked_balance ?? 0)
+      : 0;
+    if (exceedsAvailableBalance(amount, available))
+      throw new BadRequestException(
+        `Amount exceeds your available balance of ${Math.max(0, available).toFixed(2)} FARM`,
+      );
   }
 
   /** Sum of today's executed + still-pending AI payments (pending counts so caps cannot be bypassed by queuing). */
@@ -822,7 +837,8 @@ export class AiAssistantService {
       throw new BadRequestException('Request expired');
     }
     // Re-check caps and allowlist at confirm time (user may have lowered or revoked them).
-    await this.checkCaps(userId, Number(req.amount), id, req.action);
+    const amount = Number(req.amount);
+    await this.checkCaps(userId, amount, id, req.action);
     // Claim atomically so a double tap cannot execute twice.
     const claimed = await this.prisma.ai_action_requests.updateMany({
       where: { id, user_id: userId, status: 'pending' },
@@ -831,6 +847,7 @@ export class AiAssistantService {
     if (!claimed.count)
       throw new BadRequestException('Request already being processed');
     try {
+      await this.assertWithinBalance(userId, amount);
       let ref: string | null;
       let booking: unknown;
       if (req.action === 'book_hotel') {
