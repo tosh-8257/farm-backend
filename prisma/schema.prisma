@@ -2719,3 +2719,20 @@ model commerce_settlements {
   status            String   @default("recorded") @db.VarChar(20)
   created_at        DateTime @default(now()) @db.Timestamptz(6)
 }
+
+/// Return, dispute, or cancellation record. Ledger lines are memos.
+/// Wallet balances are not changed.
+model commerce_cases {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  order_id        String   @db.Uuid
+  kind            String   @db.VarChar(20)
+  status          String   @default("open") @db.VarChar(20)
+  reason          String
+  idempotency_key String   @db.VarChar(120)
+  opened_by       String   @db.Uuid
+  ledger          Json
+  created_at      DateTime @default(now()) @db.Timestamptz(6)
+
+  @@unique([order_id, idempotency_key])
+  @@index([order_id, kind])
+}

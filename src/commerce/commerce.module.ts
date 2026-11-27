@@ -20,6 +20,11 @@ import {
   MerchantCatalogueController,
   SupplierCatalogueController,
 } from './catalogue.controller';
+import { OrderCasesService } from './order-cases.service';
+import {
+  MerchantOrderCasesController,
+  SupplierOrdersController,
+} from './order-cases.controller';
 
 @Module({
   imports: [AuditModule, AuthModule, BusinessOpsModule],
@@ -32,12 +37,15 @@ import {
     SettlementController,
     SupplierCatalogueController,
     MerchantCatalogueController,
+    MerchantOrderCasesController,
+    SupplierOrdersController,
   ],
   providers: [
     CommerceService,
     ExternalStoresService,
     SettlementService,
     CatalogueService,
+    OrderCasesService,
   ],
   exports: [CommerceService, ExternalStoresService, SettlementService],
 })
