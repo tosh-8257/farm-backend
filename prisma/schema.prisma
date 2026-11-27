@@ -2545,10 +2545,23 @@ model product_variants {
   wholesale_price  Decimal  @db.Decimal(30, 8)
   stock            Int      @default(0)
   reserved         Int      @default(0)
+  image_url        String?
   product          supplier_products @relation(fields: [product_id], references: [id], onDelete: Cascade)
   listings         store_listings[]
+  stock_writes     variant_stock_writes[]
 
   @@unique([product_id, sku])
+}
+
+model variant_stock_writes {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  variant_id      String   @db.Uuid
+  idempotency_key String   @db.VarChar(120)
+  stock           Int
+  created_at      DateTime @default(now()) @db.Timestamptz(6)
+  variant         product_variants @relation(fields: [variant_id], references: [id], onDelete: Cascade)
+
+  @@unique([variant_id, idempotency_key])
 }
 
 model store_listings {
