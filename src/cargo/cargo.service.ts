@@ -7,10 +7,11 @@ import { PrismaService } from '../database/prisma.service';
 
 const NEXT: Record<string, string[]> = {
   quoted: ['booked', 'cancelled'],
-  booked: ['picked_up', 'cancelled'],
-  picked_up: ['in_transit'],
-  in_transit: ['delivered'],
+  booked: ['picked_up', 'cancelled', 'failed'],
+  picked_up: ['in_transit', 'failed'],
+  in_transit: ['delivered', 'failed'],
   delivered: [],
+  failed: [],
   cancelled: [],
 };
 

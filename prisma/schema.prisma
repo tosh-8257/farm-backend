@@ -2684,13 +2684,18 @@ model cargo_shipment_events {
 }
 
 model delivery_partner_profiles {
-  id                  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  user_id             String    @unique @db.Uuid
-  kind                String    @db.VarChar(40)
-  legal_name          String    @db.VarChar(255)
-  status              String    @default("submitted") @db.VarChar(40)
-  document_expires_at DateTime? @db.Timestamptz(6)
-  created_at          DateTime  @default(now()) @db.Timestamptz(6)
+  id                   String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id              String    @unique @db.Uuid
+  kind                 String    @db.VarChar(40)
+  legal_name           String    @db.VarChar(255)
+  status               String    @default("submitted") @db.VarChar(40)
+  phone                String?   @db.VarChar(30)
+  service_area         String?   @db.VarChar(120)
+  company_registration String?   @db.VarChar(80)
+  document_expires_at  DateTime? @db.Timestamptz(6)
+  created_at           DateTime  @default(now()) @db.Timestamptz(6)
+  vehicles             partner_vehicles[]
+  drivers              partner_drivers[]
 }
 
 model delivery_jobs {
@@ -2699,6 +2704,8 @@ model delivery_jobs {
   status      String   @default("open") @db.VarChar(20)
   created_at  DateTime @default(now()) @db.Timestamptz(6)
   assignment  delivery_assignments?
+  proof       proof_of_delivery?
+  events      delivery_job_events[]
 }
 
 model delivery_assignments {
@@ -2707,6 +2714,50 @@ model delivery_assignments {
   partner_id String   @db.Uuid
   created_at DateTime @default(now()) @db.Timestamptz(6)
   job        delivery_jobs @relation(fields: [job_id], references: [id], onDelete: Cascade)
+}
+
+model partner_vehicles {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  partner_id   String   @db.Uuid
+  category     String   @db.VarChar(40)
+  make_model   String   @db.VarChar(120)
+  registration String   @db.VarChar(40)
+  capacity_kg  Decimal  @db.Decimal(10, 3)
+  partner      delivery_partner_profiles @relation(fields: [partner_id], references: [id], onDelete: Cascade)
+
+  @@index([partner_id])
+}
+
+model partner_drivers {
+  id          String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  partner_id  String @db.Uuid
+  legal_name  String @db.VarChar(255)
+  licence_ref String @db.VarChar(80)
+  partner     delivery_partner_profiles @relation(fields: [partner_id], references: [id], onDelete: Cascade)
+
+  @@index([partner_id])
+}
+
+model proof_of_delivery {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  job_id      String    @unique @db.Uuid
+  method      String    @db.VarChar(20)
+  code_hash   String?   @db.VarChar(64)
+  reference   String?   @db.VarChar(500)
+  verified_at DateTime? @db.Timestamptz(6)
+  created_at  DateTime  @default(now()) @db.Timestamptz(6)
+  job         delivery_jobs @relation(fields: [job_id], references: [id], onDelete: Cascade)
+}
+
+model delivery_job_events {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  job_id     String   @db.Uuid
+  status     String   @db.VarChar(40)
+  note       String?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  job        delivery_jobs @relation(fields: [job_id], references: [id], onDelete: Cascade)
+
+  @@index([job_id, created_at])
 }
 
 /// Reconcilable split for a paid dropshipping order. Does not move wallet balances.
