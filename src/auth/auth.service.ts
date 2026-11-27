@@ -1642,13 +1642,14 @@ export class AuthService implements OnModuleInit {
         await this.logSecurityEvent(
           userId,
           'REFRESH_RACE',
-          'Concurrent refresh with the same token rejected',
+          'Concurrent refresh recovered with a new token pair',
           'low',
           ip,
         );
-        throw new UnauthorizedException(
-          'Refresh already in progress. Retry with the latest token.',
-        );
+        // The request that won the race may never have reached the phone
+        // (the app was cleared from recents mid-refresh). Another pair lets
+        // biometric unlock continue. Reuse outside this window is still theft.
+        return this.issueRotatedSession(session, userId, ip);
       }
       await this.handleTokenTheft(userId, session, ip);
       throw new UnauthorizedException(
@@ -1667,22 +1668,24 @@ export class AuthService implements OnModuleInit {
       );
     }
 
-    // Issue new tokens
+    return this.issueRotatedSession(session, userId, ip);
+  }
+
+  /** Mints a new access/refresh pair and stores the rotated session. */
+  private async issueRotatedSession(session: any, userId: string, ip?: string) {
     const walletId = session.users?.wallets[0]?.id;
     const userRole = session.users?.role ?? 'user';
     const tokens = await this.issueTokens(userId, userRole, walletId);
     const rounds = Number(this.cfg.get('BCRYPT_ROUNDS')) || 12;
 
-    // Create new session with rotated refresh token and keep this device's
-    // push registration on the new session. The previous session is revoked.
     const rotated = await this.prisma.user_sessions.create({
       data: {
         trusted_device_id: session.trusted_device_id ?? null,
         user_id: userId,
         refresh_token: await bcrypt.hash(tokens.refresh_token, rounds),
-        jwt_id: tokens.jti, // Store the new JWT ID
+        jwt_id: tokens.jti,
         ip_address: ip,
-        user_agent: session.user_agent, // Keep same user agent
+        user_agent: session.user_agent,
         device_name: session.device_name,
         device_os: session.device_os,
         expires_at: tokens.refresh_expires_at,

@@ -103,6 +103,32 @@ describe('refresh on a bound device', () => {
     });
   });
 
+  it('reissues tokens when the same refresh is replayed inside the race window', async () => {
+    const { svc, prisma } = build();
+    prisma.user_sessions.updateMany.mockResolvedValue({ count: 0 });
+    prisma.user_sessions.findUnique.mockResolvedValue({
+      used_at: new Date(),
+    });
+    prisma.user_sessions.create.mockResolvedValue({ id: 's3' });
+
+    const result = await svc.refresh(
+      'user-1',
+      'raw-refresh',
+      '1.1.1.1',
+      'dev-1',
+      'jti-1',
+    );
+
+    expect(result.data.access_token).toBe('access');
+    expect(result.data.refresh_token).toBe('refresh');
+    expect(prisma.user_sessions.create).toHaveBeenCalled();
+    expect(prisma.user_sessions.updateMany).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { user_id: 'user-1', is_revoked: false },
+      }),
+    );
+  });
+
   it('asks for the device id without revoking the session', async () => {
     const { svc, prisma } = build();
     await expect(

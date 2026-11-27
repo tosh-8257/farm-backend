@@ -83,11 +83,15 @@ export interface RefreshTtl {
 const REFRESH_MIN = 3_600_000;
 const REFRESH_MAX = 400 * 86_400_000;
 
+/** Legacy Render blueprint: 7 days. It re-expired every rotated session. */
+const LEGACY_REFRESH_SECONDS = 604800;
+
 /**
- * Refresh lifetime. Either refresh env name applies even when long-lived
- * sessions are off, so the Render blueprint value (604800 seconds) is honoured.
+ * Refresh lifetime. A configured duration is honoured, except the legacy
+ * 7-day blueprint value, which is treated as no expiry. Biometric installs
+ * stay signed in until logout, an explicit revoke, or account deletion.
  * With neither name set: 90 days when long-lived mode is on, otherwise no
- * expiry (existing behaviour).
+ * expiry.
  */
 export function resolveRefreshTtl(
   env: Record<string, string | undefined> = process.env,
@@ -99,6 +103,9 @@ export function resolveRefreshTtl(
     const raw =
       named != null ? env.JWT_REFRESH_EXPIRES : env.JWT_REFRESH_EXPIRATION;
     const unclamped = named ?? alias ?? 0;
+    if (Math.floor(unclamped / 1000) === LEGACY_REFRESH_SECONDS) {
+      return { ms: null, seconds: null, spec: null, source: 'persistent' };
+    }
     const ms = clamp(unclamped, REFRESH_MIN, REFRESH_MAX);
     const seconds = Math.floor(ms / 1000);
     return {
