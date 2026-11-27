@@ -26,12 +26,18 @@ describe('token ttl aliases', () => {
     expect(resolveAccessTtl({}).spec).toBe('15m');
   });
 
-  it('reads JWT_REFRESH_EXPIRATION even when long-lived mode is off', () => {
+  it('treats the legacy 7-day blueprint value as no expiry', () => {
     const ttl = resolveRefreshTtl({ JWT_REFRESH_EXPIRATION: '604800' }, false);
     expect(ttl).toMatchObject({
-      seconds: 604800,
-      source: 'JWT_REFRESH_EXPIRATION',
+      seconds: null,
+      source: 'persistent',
     });
+  });
+
+  it('still honours an explicit refresh duration', () => {
+    const ttl = resolveRefreshTtl({ JWT_REFRESH_EXPIRES: '90d' }, true);
+    expect(ttl.seconds).toBe(90 * 86_400);
+    expect(ttl.source).toBe('JWT_REFRESH_EXPIRES');
   });
 
   it('stays persistent when no refresh env is set and long-lived mode is off', () => {

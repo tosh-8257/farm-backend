@@ -78,9 +78,8 @@ services:
       
       - key: JWT_REFRESH_SECRET
         sync: false
-      
-      - key: JWT_REFRESH_EXPIRATION
-        value: 604800
+      # Refresh tokens do not expire on a timer. Access tokens stay short
+      # and are rotated. Logout, revoke, and account deletion end a session.
       
       # Cloudinary Configuration
       - key: CLOUDINARY_CLOUD_NAME
