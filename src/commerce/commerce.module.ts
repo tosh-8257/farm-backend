@@ -2,6 +2,14 @@ import { Module } from '@nestjs/common';
 import { AuditModule } from '../common/audit/audit.module';
 import { PayoutModule } from '../payouts/payout.module';
 import { EscrowModule } from './escrow.module';
+import { EcosystemOpsService } from './ecosystem-ops.service';
+import {
+  AdminOpsController,
+  CargoOpsController,
+  PartnerOpsController,
+  SellerOpsController,
+  SupplierOpsController,
+} from './ecosystem-ops.controller';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { AuthModule } from '../auth/auth.module';
 import { CommerceService } from './commerce.service';
@@ -49,6 +57,11 @@ import {
     MerchantCatalogueController,
     MerchantOrderCasesController,
     SupplierOrdersController,
+    CargoOpsController,
+    PartnerOpsController,
+    AdminOpsController,
+    SellerOpsController,
+    SupplierOpsController,
   ],
   providers: [
     CommerceService,
@@ -56,6 +69,7 @@ import {
     SettlementService,
     CatalogueService,
     OrderCasesService,
+    EcosystemOpsService,
   ],
   exports: [CommerceService, ExternalStoresService, SettlementService],
 })

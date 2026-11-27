@@ -106,6 +106,22 @@ Admin only.
 
 Order cancel, return, dispute, shipment booking, and job assignment create one in-app notification per event key. The title is generic. The body does not include an amount. Push and SMS are not added for these events.
 
+## Operations added after the money-safety fix
+
+`POST /cargo/shipments/:id/events` body `{ status }` where status is `picked_up`, `in_transit`, or `cancelled`. Cancel is only from `booked` and refunds escrow once.
+
+`GET /partners/jobs?page=` `POST /partners/jobs/:id/decision` `{ decision: accepted|rejected }` `POST /partners/availability` `{ online }` `GET /partners/earnings` `POST /partners/documents` `{ kind, expiresAt? }` `POST /partners/location` `{ lat, lng }`. Location is stored only while the partner is online and assigned. There is no map provider.
+
+`POST /admin/dispatch/shipments/:id/auto` assigns one online approved partner whose vehicle capacity covers the weight.
+
+`POST /admin/commerce/commission` `{ bps }`. `DROPSHIP_COMMISSION_BPS` still overrides this when set. The base remains the supplier item price.
+
+`GET /merchant/dropship/earnings` `POST /suppliers/fulfilments/:id/tracking` `{ tracking }`.
+
+`GET /admin/partners/documents/expiring` lists documents inside 30 days.
+
+Pay and cargo book bodies now take `pin` or `biometric_auth` plus `device_fingerprint`. They do not take `transactionId`.
+
 ## Errors
 
 400 validation or an illegal status change. 401 missing or invalid session. 403 role or ownership. 404 missing row. 409 conflict, including idempotency reuse and stock races. Wallet payout that cannot debit leaves the row `scheduled` with `last_error` and retries later.

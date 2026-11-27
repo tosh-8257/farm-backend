@@ -2612,6 +2612,7 @@ model supplier_fulfilments {
   order_id    String   @db.Uuid
   supplier_id String   @db.Uuid
   status      String   @default("pending") @db.VarChar(20)
+  tracking    String?
   created_at  DateTime @default(now()) @db.Timestamptz(6)
   order       sales_orders @relation(fields: [order_id], references: [id], onDelete: Cascade)
 
@@ -2704,10 +2705,13 @@ model delivery_partner_profiles {
   phone                String?   @db.VarChar(30)
   service_area         String?   @db.VarChar(120)
   company_registration String?   @db.VarChar(80)
+  online               Boolean   @default(false)
   document_expires_at  DateTime? @db.Timestamptz(6)
   created_at           DateTime  @default(now()) @db.Timestamptz(6)
   vehicles             partner_vehicles[]
   drivers              partner_drivers[]
+  documents            partner_documents[]
+  locations            partner_locations[]
 }
 
 model delivery_jobs {
@@ -2748,6 +2752,33 @@ model partner_drivers {
   partner     delivery_partner_profiles @relation(fields: [partner_id], references: [id], onDelete: Cascade)
 
   @@index([partner_id])
+}
+
+model partner_documents {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  partner_id String    @db.Uuid
+  kind       String    @db.VarChar(40)
+  expires_at DateTime? @db.Timestamptz(6)
+  partner    delivery_partner_profiles @relation(fields: [partner_id], references: [id], onDelete: Cascade)
+
+  @@index([expires_at])
+}
+
+model partner_locations {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  partner_id  String   @db.Uuid
+  job_id      String   @db.Uuid
+  lat         Decimal  @db.Decimal(9, 6)
+  lng         Decimal  @db.Decimal(9, 6)
+  recorded_at DateTime @default(now()) @db.Timestamptz(6)
+  partner     delivery_partner_profiles @relation(fields: [partner_id], references: [id], onDelete: Cascade)
+
+  @@index([job_id, recorded_at])
+}
+
+model commerce_settings {
+  id             Int @id @default(1)
+  commission_bps Int @default(1000)
 }
 
 model proof_of_delivery {

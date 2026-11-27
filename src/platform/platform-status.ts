@@ -20,6 +20,9 @@ const SHIPPED_MODULES = [
   'cargo_bookings',
   'partner_assignment',
   'settlement_records',
+  'escrow_payments',
+  'payouts',
+  'partner_applications',
 ] as const;
 
 const INTEGRATION_FLAGS: Record<string, string> = {

@@ -42,6 +42,9 @@ describe('public platform status', () => {
     'cargo_bookings',
     'partner_assignment',
     'settlement_records',
+    'escrow_payments',
+    'payouts',
+    'partner_applications',
   ];
 
   function enabled(body: ReturnType<typeof platformStatus>, id: string) {
