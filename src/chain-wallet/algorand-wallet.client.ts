@@ -413,6 +413,36 @@ export class AlgorandWalletClient {
       }));
   }
 
+  /** ASA transfers received by one address since `minRound`. */
+  async assetTransfersTo(
+    address: string,
+    assetId: bigint,
+    minRound: bigint,
+    limit = 200,
+  ): Promise<IncomingTransfer[]> {
+    const r = await this.indexer()
+      .searchForTransactions()
+      .address(address)
+      .addressRole('receiver')
+      .assetID(assetId)
+      .txType('axfer')
+      .minRound(minRound)
+      .limit(limit)
+      .do();
+    return (r.transactions ?? [])
+      .filter(
+        (t) => t.assetTransferTransaction && t.id && t.confirmedRound != null,
+      )
+      .map((t) => ({
+        txId: t.id!,
+        assetId,
+        sender: t.sender,
+        receiver: t.assetTransferTransaction!.receiver,
+        amount: BigInt(t.assetTransferTransaction!.amount),
+        round: BigInt(t.confirmedRound!),
+      }));
+  }
+
   async transfersSince(
     assetId: bigint,
     minRound: bigint,

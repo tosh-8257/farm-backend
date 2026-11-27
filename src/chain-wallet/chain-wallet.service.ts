@@ -20,8 +20,13 @@ import {
   USDC_DECIMALS,
 } from './chain-config';
 import {
+  cursorOverlapRounds,
+  cursorQueryFrom,
   cursorStartRound,
   depositLookbackRounds,
+  isBelowChainMinimum,
+  nextCursorRound,
+  reconcileLookbackRounds,
   stuckDepositMinutes,
 } from './deposit-watch';
 import { sealSecret, walletSigner } from './key-vault';
@@ -55,6 +60,7 @@ import {
 export class ChainWalletService {
   private readonly log = new Logger(ChainWalletService.name);
   private polling = false;
+  private reconciling = false;
   private retrying = false;
   constructor(
     private readonly prisma: PrismaService,
@@ -364,6 +370,19 @@ export class ChainWalletService {
 
   // ---------------- Deposits ----------------
 
+  @Interval('chain-deposit-reconcile', 180_000)
+  async scheduledReconcile() {
+    if (!chainConfig().deposits.enabled || this.reconciling) return;
+    this.reconciling = true;
+    try {
+      await this.reconcileMissedDeposits();
+    } catch (e: any) {
+      this.log.error(`Deposit reconcile failed: ${e?.message ?? e}`);
+    } finally {
+      this.reconciling = false;
+    }
+  }
+
   @Interval('chain-deposit-poll', 60_000)
   async scheduledPoll() {
     if (!chainConfig().deposits.enabled || this.polling) return;
@@ -424,7 +443,17 @@ export class ChainWalletService {
           data: { key, last_round: start },
         });
       }
-      const txs = await this.chain.transfersSince(a.id, cur.last_round);
+      const from = cursorQueryFrom(cur.last_round, cursorOverlapRounds());
+      let txs: Awaited<ReturnType<AlgorandWalletClient['transfersSince']>>;
+      try {
+        txs = await this.chain.transfersSince(a.id, from);
+      } catch (e: any) {
+        this.log.error(
+          `Deposit indexer read failed for ${key}; cursor left at ${cur.last_round}: ${e?.message ?? e}`,
+        );
+        continue;
+      }
+      const truncated = txs.length >= 500;
       seen += txs.length;
       const addrs = [...new Set(txs.flatMap((t) => [t.receiver, t.sender]))];
       const owners: {
@@ -480,15 +509,24 @@ export class ChainWalletService {
             skipDuplicates: true,
           })
         ).count;
-      const maxRound = txs.reduce(
+      const newest = txs.reduce(
         (m, t) => (t.round > m ? t.round : m),
         cur.last_round,
       );
-      if (maxRound > cur.last_round)
+      const next = nextCursorRound({
+        previous: cur.last_round,
+        newest,
+        truncated,
+      });
+      if (!truncated && next > cur.last_round)
         await this.prisma.chain_sync_state.update({
           where: { key },
-          data: { last_round: maxRound },
+          data: { last_round: next },
         });
+      else if (truncated)
+        this.log.error(
+          `Deposit indexer page for ${key} is full; cursor held at ${cur.last_round}`,
+        );
     }
     const algo = await this.pollAlgo(c.network, reserve);
     return { seen: seen + algo.seen, recorded: recorded + algo.recorded };
@@ -537,10 +575,21 @@ export class ChainWalletService {
       wallets.map((w) => w.funded_tx_id).filter((x): x is string => !!x),
     );
     const funder = this.chain.funderAddress();
+    const from = cursorQueryFrom(cur.last_round, cursorOverlapRounds());
     let seen = 0;
     let recorded = 0;
+    let truncated = false;
     for (const w of wallets) {
-      const txs = await this.chain.paymentsTo(w.address, cur.last_round);
+      let txs: Awaited<ReturnType<AlgorandWalletClient['paymentsTo']>>;
+      try {
+        txs = await this.chain.paymentsTo(w.address, from);
+      } catch (e: any) {
+        this.log.error(
+          `ALGO indexer read failed for ${w.address}; cursor left at ${cur.last_round}: ${e?.message ?? e}`,
+        );
+        return { seen, recorded };
+      }
+      if (txs.length >= 200) truncated = true;
       seen += txs.length;
       const rows = txs
         .filter(
@@ -574,12 +623,17 @@ export class ChainWalletService {
           })
         ).count;
     }
-    // Rounds up to `head` were covered for every address; overlap is safe (idempotent).
-    if (head > cur.last_round)
+    // A short page means every address was covered through `head`. Overlap
+    // on the next poll repeats the recent rounds. A full page holds the cursor.
+    if (!truncated && head > cur.last_round)
       await this.prisma.chain_sync_state.update({
         where: { key },
         data: { last_round: head },
       });
+    else if (truncated)
+      this.log.error(
+        `ALGO indexer page is full; cursor held at ${cur.last_round}`,
+      );
     return { seen, recorded };
   }
 
@@ -733,16 +787,22 @@ export class ChainWalletService {
       });
       return true;
     });
-    if (ok && d.business_wallet_id) {
+    if (ok) {
       const amt = isFarm
         ? `${usdc} FARM`
         : `${usdc} ${d.asset_symbol} (${farm} FARM)`;
+      const title = d.business_wallet_id
+        ? 'Business payment received'
+        : 'Deposit received';
+      const body = d.business_wallet_id
+        ? `Your business wallet received ${amt} on Algorand.`
+        : `You received ${amt} on Algorand.`;
       // Best effort: a failed notification never undoes the credit.
       await this.notifications
         ?.createInApp(d.user_id, {
           type: 'deposit_completed',
-          title: 'Business payment received',
-          body: `Your business wallet received ${amt} on Algorand.`,
+          title,
+          body,
           metadata: { chain_deposit_id: d.id, tx_id: d.tx_id },
           entityId: d.id,
         })
@@ -750,11 +810,7 @@ export class ChainWalletService {
           this.log.warn(`Deposit notification failed: ${e?.message ?? e}`),
         );
       void this.notifications
-        ?.sendPush(
-          d.user_id,
-          'Business payment received',
-          `Your business wallet received ${amt} on Algorand.`,
-        )
+        ?.sendPush(d.user_id, title, body)
         ?.catch(() => undefined);
     }
     return ok;
@@ -989,11 +1045,15 @@ export class ChainWalletService {
     const businessWallet = await this.prisma.business_chain_wallets.findUnique({
       where: { address: looked.receiver },
     });
+    const projectEscrow = await this.prisma.project_escrows.findUnique({
+      where: { address: looked.receiver },
+    });
     const managed =
       (userWallet && userWallet.network === network && userWallet) ||
       (businessWallet &&
         businessWallet.network === network &&
         businessWallet) ||
+      (projectEscrow && projectEscrow.network === network && projectEscrow) ||
       null;
     if (!managed) {
       throw new BadRequestException(
@@ -1002,7 +1062,16 @@ export class ChainWalletService {
     }
     let userId = userWallet?.user_id ?? '';
     let businessWalletId: string | null = null;
-    if (businessWallet && businessWallet.network === network) {
+    if (projectEscrow && projectEscrow.network === network) {
+      const project = await this.prisma.investment_projects.findUnique({
+        where: { id: projectEscrow.project_id },
+        select: { created_by: true },
+      });
+      if (!project?.created_by) {
+        throw new BadRequestException('Project wallet owner was not found');
+      }
+      userId = project.created_by;
+    } else if (businessWallet && businessWallet.network === network) {
       const biz = await this.prisma.businesses.findUnique({
         where: { id: businessWallet.business_id },
         select: { owner_user_id: true },
@@ -1596,6 +1665,202 @@ export class ChainWalletService {
   }
 
   /**
+   * Compare indexer history for every managed receive address with
+   * chain_deposits and credit anything confirmed and still missing.
+   * Uses the same exactly-once credit path as a manual reprocess.
+   */
+  async reconcileMissedDeposits() {
+    const c = chainConfig();
+    if (!c.deposits.enabled) return { checked: 0, credited: 0, failed: 0 };
+    const head = await this.chain.currentRound();
+    const lookback = reconcileLookbackRounds();
+    const minRound = head > lookback ? head - lookback : 0n;
+    const addresses = await this.receiveAddresses(c.network);
+    const usdc = process.env.USDC_ASA_ID ? BigInt(process.env.USDC_ASA_ID) : null;
+    const farm = process.env.FARM_ASA_ID ? BigInt(process.env.FARM_ASA_ID) : null;
+    const reserve = process.env.FARM_RESERVE_ADDRESS;
+    const managed = new Set(addresses.map((a) => a.address));
+    let funder = '';
+    try {
+      funder = this.chain.funderAddress();
+    } catch {
+      funder = '';
+    }
+    const batch = addresses.slice(this.reconcileAt, this.reconcileAt + 40);
+    this.reconcileAt =
+      this.reconcileAt + 40 >= addresses.length ? 0 : this.reconcileAt + 40;
+    let checked = 0;
+    let credited = 0;
+    let failed = 0;
+    for (const addr of batch) {
+      let txs: Awaited<ReturnType<AlgorandWalletClient['paymentsTo']>> = [];
+      try {
+        txs = await this.chain.paymentsTo(addr.address, minRound);
+        if (usdc)
+          txs = txs.concat(
+            await this.chain.assetTransfersTo(addr.address, usdc, minRound),
+          );
+        if (farm)
+          txs = txs.concat(
+            await this.chain.assetTransfersTo(addr.address, farm, minRound),
+          );
+      } catch (e: any) {
+        failed++;
+        this.log.error(
+          `Deposit reconcile indexer read failed for ${addr.address}: ${e?.message ?? e}`,
+        );
+        continue;
+      }
+      for (const tx of txs) {
+        if (tx.receiver !== addr.address || tx.amount <= 0n) continue;
+        if (tx.sender === tx.receiver) continue;
+        if (tx.sender === funder || tx.sender === reserve) continue;
+        if (managed.has(tx.sender)) continue;
+        if (addr.funded_tx_id && tx.txId === addr.funded_tx_id) continue;
+        const symbol =
+          tx.assetId === 0n ? 'ALGO' : tx.assetId === farm ? 'FARM' : 'USDC';
+        const decimals = symbol === 'FARM' ? FARM_DECIMALS : USDC_DECIMALS;
+        const human = Number(tx.amount) / 10 ** decimals;
+        checked++;
+        if (isBelowChainMinimum(symbol, human)) {
+          await this.noteUncredited(
+            c.network,
+            tx,
+            symbol,
+            decimals,
+            addr,
+            'below_minimum',
+            'Below the configured coin minimum',
+          );
+          continue;
+        }
+        const existing = await this.prisma.chain_deposits.findUnique({
+          where: {
+            network_tx_id_asset_id: {
+              network: c.network,
+              tx_id: tx.txId,
+              asset_id: tx.assetId,
+            },
+          },
+        });
+        if (existing?.status === 'credited') continue;
+        try {
+          const result = await this.creditDepositByTx({
+            txId: tx.txId,
+            asset: symbol,
+            network: c.network,
+            dry: false,
+            actorId: null,
+          });
+          if (result.data.credited) credited++;
+          else if (result.data.mode !== 'already') {
+            failed++;
+            this.log.error(
+              `Deposit ${tx.txId} was not credited (${result.data.mode})`,
+            );
+          }
+        } catch (e: any) {
+          failed++;
+          this.log.error(
+            `Deposit credit failed for ${tx.txId}: ${e?.message ?? e}`,
+          );
+          await this.noteUncredited(
+            c.network,
+            tx,
+            symbol,
+            decimals,
+            addr,
+            existing?.status ?? 'detected',
+            String(e?.message ?? e).slice(0, 300),
+          );
+        }
+      }
+    }
+    return { checked, credited, failed };
+  }
+
+  private reconcileAt = 0;
+
+  private async receiveAddresses(network: string) {
+    const users = await this.prisma.user_chain_wallets.findMany({
+      where: { network, status: 'ready' },
+      select: { address: true, funded_tx_id: true },
+    });
+    const businesses = await this.prisma.business_chain_wallets.findMany({
+      where: { network, status: 'ready' },
+      select: { address: true, funded_tx_id: true },
+    });
+    const projects = await this.prisma.project_escrows.findMany({
+      where: { network, status: 'ready' },
+      select: { address: true },
+    });
+    return [
+      ...users.map((w) => ({
+        address: w.address,
+        funded_tx_id: w.funded_tx_id,
+      })),
+      ...businesses.map((w) => ({
+        address: w.address,
+        funded_tx_id: w.funded_tx_id,
+      })),
+      ...projects.map((w) => ({ address: w.address, funded_tx_id: null })),
+    ];
+  }
+
+  private async noteUncredited(
+    network: string,
+    tx: { txId: string; assetId: bigint; sender: string; receiver: string; amount: bigint; round: bigint },
+    symbol: string,
+    decimals: number,
+    addr: { address: string },
+    status: string,
+    error: string,
+  ) {
+    this.log.error(`Deposit ${tx.txId} ${symbol} not credited: ${error}`);
+    const where = {
+      network_tx_id_asset_id: {
+        network,
+        tx_id: tx.txId,
+        asset_id: tx.assetId,
+      },
+    };
+    const existing = await this.prisma.chain_deposits.findUnique({ where });
+    if (existing?.status === 'credited') return;
+    if (existing) {
+      await this.prisma.chain_deposits.update({
+        where: { id: existing.id },
+        data: { error, ...(status === 'below_minimum' ? { status } : {}) },
+      });
+      return;
+    }
+    const owner = await this.prisma.user_chain_wallets.findUnique({
+      where: { address: addr.address },
+      select: { user_id: true },
+    });
+    if (!owner) return;
+    try {
+      await this.prisma.chain_deposits.create({
+        data: {
+          network,
+          tx_id: tx.txId,
+          asset_id: tx.assetId,
+          asset_symbol: symbol,
+          user_id: owner.user_id,
+          address: tx.receiver,
+          sender: tx.sender,
+          amount_units: tx.amount,
+          decimals,
+          confirmed_round: tx.round,
+          status,
+          error,
+        },
+      });
+    } catch (e: any) {
+      if (e?.code !== 'P2002') throw e;
+    }
+  }
+
+  /**
    * Log once when a detected deposit has not been credited in time.
    * Does not credit and does not change status.
    */
@@ -1612,8 +1877,10 @@ export class ChainWalletService {
       take: 50,
     });
     if (!stuck.length) return { alerted: 0 };
-    this.log.warn(
-      `Stuck chain deposits: ${stuck.length} older than ${minutes}m and not credited`,
+    this.log.error(
+      `ALERT stuck chain deposits: ${stuck
+        .map((row) => row.tx_id)
+        .join(', ')} older than ${minutes}m and not credited`,
     );
     await this.prisma.chain_deposits.updateMany({
       where: { id: { in: stuck.map((row) => row.id) }, alerted_at: null },
