@@ -1,6 +1,6 @@
-import { Body, Controller, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseUUIDPipe, Post, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { IsNumber, IsString, IsUUID, Min, MinLength } from 'class-validator';
+import { IsNumber, IsOptional, IsString, IsUUID, Min, MinLength } from 'class-validator';
 import { JwtGuard } from '../common/guards/jwt.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { CargoService } from './cargo.service';
@@ -13,6 +13,8 @@ class QuoteDto {
 class BookDto extends QuoteDto {
   @IsString() @MinLength(8) idempotencyKey!: string;
   @IsUUID() transactionId!: string;
+  @IsOptional() @IsString() pickupAddress?: string;
+  @IsOptional() @IsString() deliveryAddress?: string;
 }
 
 @ApiTags('Cargo')
@@ -30,5 +32,20 @@ export class CargoController {
   @Post('shipments')
   book(@CurrentUser() u: any, @Body() dto: BookDto) {
     return this.cargo.book(u.id, dto);
+  }
+
+  @Get('shipments')
+  list(@CurrentUser() u: any) {
+    return this.cargo.listMine(u.id);
+  }
+
+  @Get('shipments/:id')
+  one(@CurrentUser() u: any, @Param('id', ParseUUIDPipe) id: string) {
+    return this.cargo.getMine(u.id, id);
+  }
+
+  @Get('shipments/:id/receipt')
+  receipt(@CurrentUser() u: any, @Param('id', ParseUUIDPipe) id: string) {
+    return this.cargo.receipt(u.id, id);
   }
 }

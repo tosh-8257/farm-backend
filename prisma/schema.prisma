@@ -2663,6 +2663,8 @@ model cargo_shipments {
   price_farm             Decimal  @db.Decimal(30, 8)
   status                 String   @default("quoted") @db.VarChar(20)
   payment_transaction_id String?  @db.Uuid
+  pickup_address         String?
+  delivery_address       String?
   created_at             DateTime @default(now()) @db.Timestamptz(6)
   events                 cargo_shipment_events[]
 
