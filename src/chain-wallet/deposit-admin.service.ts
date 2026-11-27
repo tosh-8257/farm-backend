@@ -123,6 +123,7 @@ function shapeDeposit(d: any) {
     Number.isFinite(units) && decimals >= 0 ? units / 10 ** decimals : null;
   return {
     id: d.id,
+    hash: d.tx_id,
     tx_id: d.tx_id,
     network: d.network,
     asset_id: d.asset_id?.toString?.() ?? String(d.asset_id),
@@ -133,6 +134,7 @@ function shapeDeposit(d: any) {
     sender: d.sender,
     user_id: d.user_id,
     detection_status: d.status,
+    confirmation_status: d.confirmed_round != null ? 'confirmed' : 'unconfirmed',
     confirmation_round: d.confirmed_round?.toString?.() ?? null,
     ledger_transaction_id: d.transaction_id,
     ledger_status: d.transaction_id ? 'posted' : 'not_posted',

@@ -9,13 +9,22 @@ export interface KesRate {
 }
 
 /**
- * USDC/ALGO -> KSh rate from a configured HTTPS source. No built-in or fallback
- * rate: if it is not configured or fails, conversion does not happen.
+ * USDC/ALGO -> KSh. Tries the configured source, then USDC_KES_RATE_FALLBACK_URL
+ * (and the ALGO equivalent). A 429 or outage uses the last good quote for up to
+ * KES_RATE_STALE_SECONDS (default 24h) and backs off so the source is not hammered.
+ * No rate is invented when nothing has ever succeeded.
  */
+type FetchOutcome =
+  | { kind: 'rate'; mid: number }
+  | { kind: 'limited' }
+  | { kind: 'fail' };
+
 @Injectable()
 export class RateService {
   private readonly log = new Logger(RateService.name);
   private cache = new Map<string, KesRate>();
+  private nextTryAt = new Map<string, number>();
+  private failures = new Map<string, number>();
 
   /**
    * Primary source, then optional fallback. The configured spread (basis
@@ -39,8 +48,12 @@ export class RateService {
   ): Promise<KesRate | null> {
     const p = `${asset}_KES_RATE`;
     const maxAge = Number(env[`${p}_MAX_AGE_SECONDS`] ?? 300) * 1000;
+    const staleFor = Number(env.KES_RATE_STALE_SECONDS ?? 86_400) * 1000;
     const cached = this.cache.get(asset);
-    if (cached && Date.now() - cached.at.getTime() < maxAge) return cached;
+    const age = cached ? Date.now() - cached.at.getTime() : Infinity;
+    if (cached && age < maxAge) return cached;
+    if (Date.now() < (this.nextTryAt.get(asset) ?? 0))
+      return this.stale(asset, cached, staleFor);
     const sources = [
       {
         url: env[`${p}_URL`],
@@ -58,28 +71,52 @@ export class RateService {
       min: Number(env[`${p}_MIN`] ?? defMin),
       max: Number(env[`${p}_MAX`] ?? defMax),
     };
+    let limited = false;
     for (const s of sources) {
-      const mid = await this.fetchOne(s, bounds);
-      if (mid == null) continue;
-      const rate = Math.floor(mid * (1 - spreadBps / 10_000) * 1e6) / 1e6;
+      const got = await this.fetchOne(s, bounds);
+      if (got.kind === 'limited') {
+        limited = true;
+        continue;
+      }
+      if (got.kind !== 'rate') continue;
+      const rate = Math.floor(got.mid * (1 - spreadBps / 10_000) * 1e6) / 1e6;
       const r: KesRate = {
         rate,
-        mid,
+        mid: got.mid,
         spread_bps: spreadBps,
         source: new URL(s.url!).host,
         at: new Date(),
       };
       this.cache.set(asset, r);
+      this.failures.set(asset, 0);
+      this.nextTryAt.delete(asset);
       return r;
     }
-    return null;
+    if (limited) {
+      const n = (this.failures.get(asset) ?? 0) + 1;
+      this.failures.set(asset, n);
+      const wait = Math.min(30_000 * 2 ** (n - 1), 15 * 60_000);
+      this.nextTryAt.set(asset, Date.now() + wait);
+      this.log.warn(
+        `${asset} rate source rate-limited; backing off ${Math.round(wait / 1000)}s`,
+      );
+    }
+    return this.stale(asset, this.cache.get(asset), staleFor);
+  }
+
+  /** Last good quote. Used when the live source is rate-limited or down. */
+  private stale(asset: string, cached: KesRate | undefined, staleFor: number) {
+    if (!cached || Date.now() - cached.at.getTime() > staleFor) return null;
+    this.log.warn(`Using last good ${asset} rate from ${cached.source}`);
+    return { ...cached, source: `cache:${cached.source}` };
   }
 
   private async fetchOne(
     s: { url?: string; path?: string; hdr?: string; key?: string },
     bounds: { min: number; max: number },
-  ): Promise<number | null> {
-    if (!s.url || !s.path || !s.url.startsWith('https://')) return null;
+  ): Promise<FetchOutcome> {
+    if (!s.url || !s.path || !s.url.startsWith('https://'))
+      return { kind: 'fail' };
     try {
       const headers: Record<string, string> = { accept: 'application/json' };
       if (s.hdr && s.key) headers[s.hdr] = s.key; // API key sent as header, never logged
@@ -87,6 +124,7 @@ export class RateService {
         headers,
         signal: AbortSignal.timeout(8000),
       });
+      if (res.status === 429) return { kind: 'limited' };
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const body: unknown = await res.json();
       const v = s.path
@@ -95,12 +133,12 @@ export class RateService {
       const rate = Number(v);
       if (!Number.isFinite(rate) || rate < bounds.min || rate > bounds.max)
         throw new Error('rate outside sanity bounds');
-      return rate;
+      return { kind: 'rate', mid: rate };
     } catch (e: any) {
       this.log.warn(
         `Rate source ${new URL(s.url).host} unavailable: ${e?.message ?? e}`,
       );
-      return null;
+      return { kind: 'fail' };
     }
   }
 }
