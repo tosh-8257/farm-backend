@@ -3,17 +3,22 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
 import { cargoTransition } from '../cargo/cargo.service';
 import { resolveEscrowWalletId } from './escrow-pay.service';
 import { commissionBps } from './order-rules';
+import { EcosystemNotifyService } from '../notifications/ecosystem-notify.service';
 
 const PAGE = 20;
 
 @Injectable()
 export class EcosystemOpsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly notify?: EcosystemNotifyService,
+  ) {}
 
   async shipmentEvent(userId: string, shipmentId: string, status: string) {
     if (!['picked_up', 'in_transit', 'cancelled'].includes(status))
@@ -25,6 +30,13 @@ export class EcosystemOpsService {
     if (!cargoTransition(shipment.status, status))
       throw new BadRequestException(`Cannot move ${shipment.status} to ${status}`);
     if (status === 'cancelled') return this.refundShipment(shipment);
+    const title =
+      status === 'picked_up' ? 'Pickup update' : 'Shipment update';
+    const body =
+      status === 'picked_up'
+        ? 'A shipment was picked up.'
+        : 'A shipment is in transit.';
+    await this.notify?.once(userId, `shipment:${shipmentId}:${status}`, title, body);
     const updated = await this.prisma.cargo_shipments.update({
       where: { id: shipment.id },
       data: {
@@ -104,6 +116,14 @@ export class EcosystemOpsService {
       include: { partner: { select: { user_id: true, legal_name: true } } },
       take: 100,
     });
+    for (const row of rows) {
+      await this.notify?.once(
+        row.partner.user_id,
+        `document:${row.id}:expiry`,
+        'Document update',
+        'A partner document is near its expiry date.',
+      );
+    }
     return { data: rows };
   }
 
@@ -194,6 +214,63 @@ export class EcosystemOpsService {
     return { data };
   }
 
+  async rateSupplier(userId: string, supplierId: string, score: number) {
+    if (!supplierId) throw new BadRequestException('supplierId is required');
+    this.score(score);
+    const row = await this.prisma.supplier_ratings.upsert({
+      where: { supplier_id_user_id: { supplier_id: supplierId, user_id: userId } },
+      create: { supplier_id: supplierId, user_id: userId, score },
+      update: { score },
+    });
+    return { data: row };
+  }
+
+  async ratePartner(userId: string, partnerId: string, score: number) {
+    if (!partnerId) throw new BadRequestException('partnerId is required');
+    this.score(score);
+    const row = await this.prisma.partner_ratings.upsert({
+      where: { partner_id_user_id: { partner_id: partnerId, user_id: userId } },
+      create: { partner_id: partnerId, user_id: userId, score },
+      update: { score },
+    });
+    return { data: row };
+  }
+
+  async supplierDocument(userId: string, kind: string, expiresAt?: string) {
+    const supplier = await this.prisma.supplier_profiles.findUnique({
+      where: { user_id: userId },
+    });
+    if (!supplier) throw new NotFoundException('Supplier not found');
+    const row = await this.prisma.supplier_documents.create({
+      data: {
+        supplier_id: supplier.id,
+        kind,
+        expires_at: expiresAt ? new Date(expiresAt) : null,
+      },
+    });
+    return { data: row };
+  }
+
+  async setRegions(userId: string, regions: string) {
+    const supplier = await this.prisma.supplier_profiles.findUnique({
+      where: { user_id: userId },
+    });
+    if (!supplier) throw new NotFoundException('Supplier not found');
+    const row = await this.prisma.supplier_profiles.update({
+      where: { id: supplier.id },
+      data: { regions: regions.trim() },
+    });
+    return { data: { regions: row.regions } };
+  }
+
+  async suspendProduct(productId: string) {
+    const row = await this.prisma.supplier_products.update({
+      where: { id: productId },
+      data: { status: 'suspended' },
+    });
+    return { data: row };
+  }
+
   async setTracking(userId: string, fulfilmentId: string, tracking: string) {
     const supplier = await this.prisma.supplier_profiles.findUnique({
       where: { user_id: userId },
@@ -208,6 +285,11 @@ export class EcosystemOpsService {
       data: { tracking: tracking.trim() },
     });
     return { data: updated };
+  }
+
+  private score(score: number) {
+    if (!Number.isInteger(score) || score < 1 || score > 5)
+      throw new BadRequestException('Score must be a whole number from 1 to 5');
   }
 
   private async own(userId: string) {

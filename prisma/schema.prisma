@@ -2514,6 +2514,7 @@ model supplier_profiles {
   kind         String    @db.VarChar(20)
   legal_name   String    @db.VarChar(255)
   region       String?   @db.VarChar(120)
+  regions      String?
   terms        String?
   status       String    @default("draft") @db.VarChar(40)
   review_notes String?
@@ -2781,6 +2782,35 @@ model commerce_settings {
   commission_bps Int @default(1000)
 }
 
+model supplier_documents {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  supplier_id String    @db.Uuid
+  kind        String    @db.VarChar(40)
+  expires_at  DateTime? @db.Timestamptz(6)
+
+  @@index([supplier_id])
+}
+
+model supplier_ratings {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  supplier_id String   @db.Uuid
+  user_id     String   @db.Uuid
+  score       Int
+  created_at  DateTime @default(now()) @db.Timestamptz(6)
+
+  @@unique([supplier_id, user_id])
+}
+
+model partner_ratings {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  partner_id String   @db.Uuid
+  user_id    String   @db.Uuid
+  score      Int
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+
+  @@unique([partner_id, user_id])
+}
+
 model proof_of_delivery {
   id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   job_id      String    @unique @db.Uuid
@@ -2839,7 +2869,7 @@ model commerce_cases {
 model payout_releases {
   id                       String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   idempotency_key          String    @unique @db.VarChar(160)
-  kind                     String    @db.VarChar(30)
+  kind                     String    @db.VarChar(80)
   subject_type             String    @db.VarChar(20)
   subject_id               String    @db.Uuid
   payee_user_id            String?   @db.Uuid

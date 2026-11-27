@@ -3,6 +3,7 @@ import { AuditModule } from '../common/audit/audit.module';
 import { PayoutModule } from '../payouts/payout.module';
 import { EscrowModule } from './escrow.module';
 import { EcosystemOpsService } from './ecosystem-ops.service';
+import { SupplierTimeoutService } from './supplier-timeout.service';
 import {
   AdminOpsController,
   CargoOpsController,
@@ -70,6 +71,7 @@ import {
     CatalogueService,
     OrderCasesService,
     EcosystemOpsService,
+    SupplierTimeoutService,
   ],
   exports: [CommerceService, ExternalStoresService, SettlementService],
 })

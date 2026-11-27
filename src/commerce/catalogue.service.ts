@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { listQuery } from './list-query';
 import { PrismaService } from '../database/prisma.service';
 import { httpsImageUrl } from './catalogue';
 import { CommerceService } from './commerce.service';
@@ -39,14 +40,23 @@ export class CatalogueService {
     return { data: product };
   }
 
-  async listOwn(userId: string) {
+  async listOwn(
+    userId: string,
+    query: { page?: string; limit?: string; sort?: string; status?: string } = {},
+  ) {
     const supplier = await this.commerce.ownSupplier(userId);
+    const list = listQuery(query);
     const products = await this.prisma.supplier_products.findMany({
-      where: { supplier_id: supplier.id },
+      where: {
+        supplier_id: supplier.id,
+        ...(list.status ? { status: list.status } : {}),
+      },
       include: { variants: true },
-      orderBy: { created_at: 'desc' },
+      orderBy: { created_at: list.order },
+      skip: list.skip,
+      take: list.limit,
     });
-    return { data: products };
+    return { data: products, meta: { page: list.page, limit: list.limit, sort: list.order } };
   }
 
   async addVariant(
@@ -168,10 +178,23 @@ export class CatalogueService {
     }
   }
 
-  async search(userId: string, query: { q?: string; category?: string }) {
+  async search(
+    userId: string,
+    query: {
+      q?: string;
+      category?: string;
+      page?: string;
+      limit?: string;
+      sort?: string;
+    },
+  ) {
     await this.commerce.approvedMerchant(userId);
     const q = query.q?.trim();
     const category = query.category?.trim();
+    const list = listQuery({
+      ...query,
+      sort: query.sort === 'desc' ? 'desc' : 'asc',
+    });
     const products = await this.prisma.supplier_products.findMany({
       where: {
         status: 'active',
@@ -197,12 +220,19 @@ export class CatalogueService {
         variants: true,
         supplier: { select: { id: true, legal_name: true, region: true } },
       },
-      take: 50,
-      orderBy: { name: 'asc' },
+      take: list.limit,
+      skip: list.skip,
+      orderBy: { name: list.order },
     });
     return {
       data: products,
-      meta: { eta: null, maps_verified: false },
+      meta: {
+        eta: null,
+        maps_verified: false,
+        page: list.page,
+        limit: list.limit,
+        sort: list.order,
+      },
     };
   }
 

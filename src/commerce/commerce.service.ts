@@ -4,10 +4,12 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { AuditLogService } from '../common/audit/audit-log.service';
+import { EcosystemNotifyService } from '../notifications/ecosystem-notify.service';
 import {
   commissionBps,
   commissionFarm,
@@ -22,6 +24,7 @@ export class CommerceService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditLogService,
+    @Optional() private readonly notify?: EcosystemNotifyService,
   ) {}
 
   async applySupplier(
@@ -250,6 +253,12 @@ export class CommerceService {
       where: { id: orderId },
       data: { status: 'paid', payment_transaction_id: transactionId },
     });
+    await this.notify?.once(
+      merchantUserId,
+      `order:${orderId}:paid`,
+      'Order update',
+      'An order was paid.',
+    );
     return { replayed: false, order: paid };
   }
 
@@ -303,6 +312,20 @@ export class CommerceService {
       data: { status: decision },
     });
     if (decision === 'rejected') await this.releaseOrderStock(row.order_id);
+    const order = await this.prisma.sales_orders.findUnique({
+      where: { id: row.order_id },
+    });
+    const merchant = order
+      ? await this.prisma.merchants.findUnique({ where: { id: order.merchant_id } })
+      : null;
+    await this.notify?.once(
+      merchant?.user_id,
+      `fulfilment:${fulfilmentId}:${decision}`,
+      'Order update',
+      decision === 'accepted'
+        ? 'A supplier accepted an order.'
+        : 'A supplier rejected an order.',
+    );
     return updated;
   }
 

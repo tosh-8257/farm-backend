@@ -40,6 +40,14 @@ class CommissionDto {
 class TrackDto {
   @IsString() @MinLength(2) tracking!: string;
 }
+class RateDto {
+  @IsOptional() @IsString() partnerId?: string;
+  @IsOptional() @IsString() supplierId?: string;
+  @IsNumber() score!: number;
+}
+class RegionsDto {
+  @IsString() @MinLength(2) regions!: string;
+}
 
 @ApiTags('Cargo')
 @ApiBearerAuth('JWT')
@@ -94,6 +102,11 @@ export class PartnerOpsController {
     return this.ops.addDocument(u.id, dto.kind, dto.expiresAt);
   }
 
+  @Post('ratings')
+  ratePartner(@CurrentUser() u: any, @Body() dto: RateDto) {
+    return this.ops.ratePartner(u.id, dto.partnerId ?? '', dto.score);
+  }
+
   @Post('location')
   location(@CurrentUser() u: any, @Body() dto: LocDto) {
     return this.ops.locate(u.id, dto.lat, dto.lng);
@@ -116,6 +129,11 @@ export class AdminOpsController {
   @Post('commerce/commission')
   commission(@Body() dto: CommissionDto) {
     return this.ops.setCommission(dto.bps);
+  }
+
+  @Post('suppliers/products/:id/suspend')
+  suspend(@Param('id', ParseUUIDPipe) id: string) {
+    return this.ops.suspendProduct(id);
   }
 
   @Get('partners/documents/expiring')
@@ -143,6 +161,21 @@ export class SellerOpsController {
 @Controller({ path: 'suppliers/fulfilments', version: '1' })
 export class SupplierOpsController {
   constructor(private readonly ops: EcosystemOpsService) {}
+
+  @Post('documents')
+  document(@CurrentUser() u: any, @Body() dto: DocDto) {
+    return this.ops.supplierDocument(u.id, dto.kind, dto.expiresAt);
+  }
+
+  @Post('regions')
+  regions(@CurrentUser() u: any, @Body() dto: RegionsDto) {
+    return this.ops.setRegions(u.id, dto.regions);
+  }
+
+  @Post('ratings')
+  rate(@CurrentUser() u: any, @Body() dto: RateDto) {
+    return this.ops.rateSupplier(u.id, dto.supplierId ?? '', dto.score);
+  }
 
   @Post(':id/tracking')
   tracking(

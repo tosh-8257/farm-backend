@@ -50,8 +50,14 @@ export class SupplierCatalogueController {
   }
 
   @Get()
-  list(@CurrentUser() u: any) {
-    return this.catalogue.listOwn(u.id);
+  list(
+    @CurrentUser() u: any,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('sort') sort?: string,
+    @Query('status') status?: string,
+  ) {
+    return this.catalogue.listOwn(u.id, { page, limit, sort, status });
   }
 
   @Post(':id/variants')
@@ -90,7 +96,10 @@ export class MerchantCatalogueController {
     @CurrentUser() u: any,
     @Query('q') q?: string,
     @Query('category') category?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('sort') sort?: string,
   ) {
-    return this.catalogue.search(u.id, { q, category });
+    return this.catalogue.search(u.id, { q, category, page, limit, sort });
   }
 }

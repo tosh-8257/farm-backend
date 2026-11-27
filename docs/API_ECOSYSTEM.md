@@ -116,7 +116,15 @@ Order cancel, return, dispute, shipment booking, and job assignment create one i
 
 `POST /admin/commerce/commission` `{ bps }`. `DROPSHIP_COMMISSION_BPS` still overrides this when set. The base remains the supplier item price.
 
-`GET /merchant/dropship/earnings` `POST /suppliers/fulfilments/:id/tracking` `{ tracking }`.
+`GET /merchant/dropship/earnings` returns each paid order's retail, supplier, commission, and net. `POST /suppliers/fulfilments/:id/tracking` `{ tracking }`. `POST /suppliers/fulfilments/documents` `{ kind, expiresAt? }`. `POST /suppliers/fulfilments/regions` `{ regions }`. `POST /suppliers/fulfilments/ratings` `{ supplierId, score }` and `POST /partners/ratings` `{ partnerId, score }` store one score from 1 to 5 per user.
+
+`POST /admin/suppliers/products/:id/suspend` sets the product status to `suspended`.
+
+`GET /merchant/dropship/orders`, `GET /suppliers/orders`, `GET /suppliers/products`, `GET /merchant/dropship/catalogue`, and `GET /cargo/shipments` accept `page`, `limit` (max 50), `sort` (`asc` or `desc`), and, except the catalogue search, `status`.
+
+A supplier fulfilment left `pending` for `SUPPLIER_DECISION_HOURS` (default 48) is marked `timed_out`, written as a dead `supplier_timeout` platform job, and the merchant is notified once.
+
+Notices, one per event key and with no amount in the body: order paid, supplier accepted, supplier rejected, supplier timed out, pickup, in transit, delivered, payout completed, payout failed, partner application status, partner document expiry.
 
 `GET /admin/partners/documents/expiring` lists documents inside 30 days.
 

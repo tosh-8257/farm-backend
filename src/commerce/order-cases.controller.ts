@@ -5,6 +5,7 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
@@ -26,8 +27,14 @@ export class MerchantOrderCasesController {
   constructor(private readonly cases: OrderCasesService) {}
 
   @Get('orders')
-  list(@CurrentUser() u: any) {
-    return this.cases.listForMerchant(u.id);
+  list(
+    @CurrentUser() u: any,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('sort') sort?: string,
+    @Query('status') status?: string,
+  ) {
+    return this.cases.listForMerchant(u.id, { page, limit, sort, status });
   }
 
   @Post('orders/:id/cancel')
@@ -66,7 +73,13 @@ export class SupplierOrdersController {
   constructor(private readonly cases: OrderCasesService) {}
 
   @Get('orders')
-  list(@CurrentUser() u: any) {
-    return this.cases.listForSupplier(u.id);
+  list(
+    @CurrentUser() u: any,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('sort') sort?: string,
+    @Query('status') status?: string,
+  ) {
+    return this.cases.listForSupplier(u.id, { page, limit, sort, status });
   }
 }

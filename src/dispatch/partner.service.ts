@@ -4,10 +4,12 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
 import { AuditLogService } from '../common/audit/audit-log.service';
 import { supplierAdminTransition } from '../commerce/order-rules';
+import { EcosystemNotifyService } from '../notifications/ecosystem-notify.service';
 
 const KINDS = [
   'individual_rider',
@@ -20,6 +22,7 @@ export class PartnerService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditLogService,
+    @Optional() private readonly notify?: EcosystemNotifyService,
   ) {}
 
   async apply(
@@ -132,6 +135,12 @@ export class PartnerService {
       where: { id: partnerId },
       data: { status: to },
     });
+    await this.notify?.once(
+      updated.user_id,
+      `partner:${partnerId}:${to}`,
+      'Partner update',
+      'Your partner application status changed.',
+    );
     await this.audit.log({
       userId: adminId,
       action: 'partner_decision',

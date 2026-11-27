@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { IsBoolean, IsNumber, IsOptional, IsString, Min, MinLength } from 'class-validator';
 import { JwtGuard } from '../common/guards/jwt.guard';
@@ -51,8 +51,14 @@ export class CargoController {
   }
 
   @Get('shipments')
-  list(@CurrentUser() u: any) {
-    return this.cargo.listMine(u.id);
+  list(
+    @CurrentUser() u: any,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('sort') sort?: string,
+    @Query('status') status?: string,
+  ) {
+    return this.cargo.listMine(u.id, { page, limit, sort, status });
   }
 
   @Get('shipments/:id')

@@ -9,6 +9,7 @@ import { Optional } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
 import { EcosystemNotifyService } from '../notifications/ecosystem-notify.service';
 import { CommerceService } from './commerce.service';
+import { listQuery } from './list-query';
 
 const PAID = ['paid', 'forwarded', 'accepted', 'fulfilled'];
 
@@ -26,25 +27,41 @@ export class OrderCasesService {
     @Optional() private readonly notify?: EcosystemNotifyService,
   ) {}
 
-  async listForMerchant(userId: string) {
+  async listForMerchant(
+    userId: string,
+    query: { page?: string; limit?: string; sort?: string; status?: string } = {},
+  ) {
     const merchant = await this.commerce.approvedMerchant(userId);
+    const list = listQuery(query);
     const orders = await this.prisma.sales_orders.findMany({
-      where: { merchant_id: merchant.id },
+      where: {
+        merchant_id: merchant.id,
+        ...(list.status ? { status: list.status } : {}),
+      },
       include: { items: true },
-      orderBy: { created_at: 'desc' },
-      take: 50,
+      orderBy: { created_at: list.order },
+      skip: list.skip,
+      take: list.limit,
     });
-    return { data: orders };
+    return { data: orders, meta: { page: list.page, limit: list.limit, sort: list.order } };
   }
 
-  async listForSupplier(userId: string) {
+  async listForSupplier(
+    userId: string,
+    query: { page?: string; limit?: string; sort?: string; status?: string } = {},
+  ) {
     const supplier = await this.commerce.ownSupplier(userId);
+    const list = listQuery(query);
     const rows = await this.prisma.supplier_fulfilments.findMany({
-      where: { supplier_id: supplier.id },
-      orderBy: { created_at: 'desc' },
-      take: 50,
+      where: {
+        supplier_id: supplier.id,
+        ...(list.status ? { status: list.status } : {}),
+      },
+      orderBy: { created_at: list.order },
+      skip: list.skip,
+      take: list.limit,
     });
-    return { data: rows };
+    return { data: rows, meta: { page: list.page, limit: list.limit, sort: list.order } };
   }
 
   async cancel(

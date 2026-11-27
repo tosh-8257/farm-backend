@@ -8,6 +8,7 @@ import { PrismaService } from '../database/prisma.service';
 import { money } from '../commerce/order-rules';
 import { resolveEscrowWalletId } from '../commerce/escrow-pay.service';
 import { EcosystemNotifyService } from '../notifications/ecosystem-notify.service';
+import { listQuery } from '../commerce/list-query';
 
 const NEXT: Record<string, string[]> = {
   quoted: ['booked', 'cancelled'],
@@ -169,13 +170,24 @@ export class CargoService {
    * Any signed-in personal, merchant, or business user lists only their own
    * shipments. There is no merchant-only gate on quote or book.
    */
-  async listMine(userId: string) {
+  async listMine(
+    userId: string,
+    query: { page?: string; limit?: string; sort?: string; status?: string } = {},
+  ) {
+    const list = listQuery(query);
     const rows = await this.prisma.cargo_shipments.findMany({
-      where: { user_id: userId },
-      orderBy: { created_at: 'desc' },
-      take: 50,
+      where: {
+        user_id: userId,
+        ...(list.status ? { status: list.status } : {}),
+      },
+      orderBy: { created_at: list.order },
+      skip: list.skip,
+      take: list.limit,
     });
-    return { data: rows.map((row) => this.publicShipment(row)) };
+    return {
+      data: rows.map((row) => this.publicShipment(row)),
+      meta: { page: list.page, limit: list.limit, sort: list.order },
+    };
   }
 
   async getMine(userId: string, id: string) {

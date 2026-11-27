@@ -135,6 +135,12 @@ export class PayoutService {
       });
     }
     await this.scheduleShipment(shipment.id, partner.user_id, proof.verified_at);
+    await this.notify?.once(
+      shipment.user_id,
+      `shipment:${shipment.id}:delivered`,
+      'Shipment update',
+      'A shipment was delivered.',
+    );
     return { replayed: shipment.status === 'delivered', shipment_id: shipment.id };
   }
 
@@ -454,12 +460,15 @@ export class PayoutService {
           processed_at: now,
         },
       });
+      const category = row.kind.startsWith('supplier')
+        ? 'supplier_payout'
+        : row.kind.slice(0, 40);
       await this.debit(
         tx,
         row.source_wallet_id,
         Number(row.amount),
         txn.id,
-        row.kind,
+        category,
       );
       if (row.kind === 'commission' || row.kind === 'farm_cargo') {
         await creditPlatformInTx(
@@ -467,11 +476,11 @@ export class PayoutService {
           Number(row.amount),
           `FARM share ${row.kind}`,
           txn.id,
-          row.kind,
+          category,
         );
       } else if (row.payee_user_id) {
         const walletId = await this.userWallet(tx, row.payee_user_id);
-        await this.credit(tx, walletId, Number(row.amount), txn.id, row.kind);
+        await this.credit(tx, walletId, Number(row.amount), txn.id, category);
         await tx.transactions.update({
           where: { id: txn.id },
           data: { receiver_wallet_id: walletId },
