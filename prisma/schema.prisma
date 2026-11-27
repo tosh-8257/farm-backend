@@ -2582,7 +2582,7 @@ model sales_orders {
   buyer_user_id          String?  @db.Uuid
   idempotency_key        String   @db.VarChar(120)
   status                 String   @default("placed") @db.VarChar(20)
-  payment_transaction_id String?  @db.Uuid
+  payment_transaction_id String?  @unique @db.Uuid
   retail_total           Decimal  @default(0) @db.Decimal(30, 8)
   supplier_total         Decimal  @default(0) @db.Decimal(30, 8)
   commission_bps         Int?
@@ -2671,7 +2671,8 @@ model cargo_shipments {
   weight_kg              Decimal  @db.Decimal(10, 3)
   price_farm             Decimal  @db.Decimal(30, 8)
   status                 String   @default("quoted") @db.VarChar(20)
-  payment_transaction_id String?  @db.Uuid
+  payment_transaction_id String?  @unique @db.Uuid
+  order_id               String?  @db.Uuid
   pickup_address         String?
   delivery_address       String?
   farm_share_bps         Int?
@@ -2753,9 +2754,10 @@ model proof_of_delivery {
   id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   job_id      String    @unique @db.Uuid
   method      String    @db.VarChar(20)
-  code_hash   String?   @db.VarChar(64)
-  reference   String?   @db.VarChar(500)
-  verified_at DateTime? @db.Timestamptz(6)
+  code_hash      String?   @db.VarChar(64)
+  reference      String?   @db.VarChar(500)
+  failed_attempts Int      @default(0)
+  verified_at    DateTime? @db.Timestamptz(6)
   created_at  DateTime  @default(now()) @db.Timestamptz(6)
   job         delivery_jobs @relation(fields: [job_id], references: [id], onDelete: Cascade)
 }
@@ -2813,6 +2815,7 @@ model payout_releases {
   source_wallet_id         String?   @db.Uuid
   amount                   Decimal   @db.Decimal(30, 8)
   status                   String    @default("scheduled") @db.VarChar(20)
+  attempts                 Int       @default(0)
   hold_until               DateTime  @db.Timestamptz(6)
   paid_transaction_id      String?   @db.Uuid
   reversal_transaction_id  String?   @db.Uuid

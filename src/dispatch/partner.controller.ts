@@ -88,10 +88,11 @@ export class PartnerController {
 
   @Post('jobs/:id/proof/verify')
   verify(
+    @CurrentUser() u: any,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: VerifyDto,
   ) {
-    return this.dispatch.verifyProof(id, dto.code);
+    return this.dispatch.verifyProof(u.id, id, dto.code);
   }
 }
 

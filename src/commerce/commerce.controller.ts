@@ -24,6 +24,7 @@ import { Roles } from '../common/decorators/roles.decorator';
 import { UserRole } from '../common/enums';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { CommerceService } from './commerce.service';
+import { EscrowPayService } from './escrow-pay.service';
 
 class ApplySupplierDto {
   @IsIn(['individual', 'business']) kind!: 'individual' | 'business';
@@ -45,7 +46,9 @@ class PlaceOrderDto {
   lines!: OrderLineDto[];
 }
 class PayOrderDto {
-  @IsUUID() transactionId!: string;
+  @IsOptional() @IsString() @MinLength(4) pin?: string;
+  @IsOptional() biometric_auth?: boolean;
+  @IsOptional() @IsString() device_fingerprint?: string;
 }
 class DecisionDto {
   @IsIn(['accepted', 'rejected']) decision!: 'accepted' | 'rejected';
@@ -87,7 +90,10 @@ export class SupplierController {
 @UseGuards(JwtGuard)
 @Controller({ path: 'merchant/dropship', version: '1' })
 export class MerchantDropshipController {
-  constructor(private readonly commerce: CommerceService) {}
+  constructor(
+    private readonly commerce: CommerceService,
+    private readonly escrow: EscrowPayService,
+  ) {}
 
   @Post('listings')
   list(@CurrentUser() u: any, @Body() dto: ListingDto) {
@@ -100,8 +106,21 @@ export class MerchantDropshipController {
   }
 
   @Post('orders/:id/pay')
-  pay(@Param('id', ParseUUIDPipe) id: string, @Body() dto: PayOrderDto) {
-    return this.commerce.markPaid(id, dto.transactionId);
+  async pay(
+    @CurrentUser() u: any,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: PayOrderDto,
+  ) {
+    const order = await this.commerce.payableOrder(u.id, id);
+    const charge = await this.escrow.charge(u.id, {
+      amount: Number(order.retail_total),
+      idempotencyKey: `order-${id}`,
+      description: 'Dropshipping order',
+      pin: dto.pin,
+      biometric_auth: dto.biometric_auth,
+      device_fingerprint: dto.device_fingerprint,
+    });
+    return this.commerce.bindEscrowPayment(u.id, id, charge.transactionId);
   }
 
   @Post('orders/:id/forward')

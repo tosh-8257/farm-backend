@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AuditModule } from '../common/audit/audit.module';
 import { PayoutModule } from '../payouts/payout.module';
+import { EscrowModule } from './escrow.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { AuthModule } from '../auth/auth.module';
 import { CommerceService } from './commerce.service';
@@ -35,6 +36,7 @@ import {
     BusinessOpsModule,
     PayoutModule,
     NotificationsModule,
+    EscrowModule,
   ],
   controllers: [
     SupplierController,

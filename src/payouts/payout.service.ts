@@ -5,6 +5,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { Interval } from '@nestjs/schedule';
 import { Prisma } from '@prisma/client';
@@ -13,6 +14,8 @@ import { AuditLogService } from '../common/audit/audit-log.service';
 import { money } from '../commerce/order-rules';
 import { cargoTransition } from '../cargo/cargo.service';
 import { creditPlatformInTx } from '../fees/fee-defaults';
+import { resolveEscrowWalletId } from '../commerce/escrow-pay.service';
+import { EcosystemNotifyService } from '../notifications/ecosystem-notify.service';
 
 export const PAYOUT_HOLD_MS = 24 * 60 * 60 * 1000;
 
@@ -28,6 +31,7 @@ export class PayoutService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditLogService,
+    @Optional() private readonly notify?: EcosystemNotifyService,
   ) {}
 
   @Interval(30_000)
@@ -52,11 +56,13 @@ export class PayoutService {
     });
     if (!row) throw new NotFoundException('Fulfilment not found');
     if (row.status === 'fulfilled') {
-      await this.scheduleOrder(row.order_id, now);
+      const proven = await this.proofTimeForOrder(row.order_id);
+      await this.scheduleOrder(row.order_id, proven);
       return { replayed: true, order_id: row.order_id };
     }
     if (row.status !== 'accepted')
       throw new BadRequestException('Accept the fulfilment before confirming delivery');
+    const proven = await this.proofTimeForOrder(row.order_id);
     await this.prisma.supplier_fulfilments.update({
       where: { id: row.id },
       data: { status: 'fulfilled' },
@@ -77,9 +83,24 @@ export class PayoutService {
           data: { status: 'fulfilled' },
         });
       }
-      await this.scheduleOrder(row.order_id, now);
+      await this.scheduleOrder(row.order_id, proven);
     }
     return { replayed: false, order_id: row.order_id };
+  }
+
+  private async proofTimeForOrder(orderId: string) {
+    const shipment = await this.prisma.cargo_shipments.findFirst({
+      where: { order_id: orderId },
+    });
+    if (!shipment)
+      throw new BadRequestException('Delivery proof is not verified');
+    const job = await this.prisma.delivery_jobs.findUnique({
+      where: { shipment_id: shipment.id },
+      include: { proof: true },
+    });
+    if (!job?.proof?.verified_at)
+      throw new BadRequestException('Delivery proof is not verified');
+    return job.proof.verified_at;
   }
 
   async confirmJob(userId: string, jobId: string, now = new Date()) {
@@ -97,6 +118,11 @@ export class PayoutService {
       where: { id: job.shipment_id },
     });
     if (!shipment) throw new NotFoundException('Shipment not found');
+    const proof = await this.prisma.proof_of_delivery.findUnique({
+      where: { job_id: jobId },
+    });
+    if (!proof?.verified_at)
+      throw new BadRequestException('Delivery proof is not verified');
     if (shipment.status !== 'delivered') {
       if (!cargoTransition(shipment.status, 'delivered'))
         throw new BadRequestException('This shipment cannot be confirmed delivered');
@@ -108,7 +134,7 @@ export class PayoutService {
         },
       });
     }
-    await this.scheduleShipment(shipment.id, partner.user_id, now);
+    await this.scheduleShipment(shipment.id, partner.user_id, proof.verified_at);
     return { replayed: shipment.status === 'delivered', shipment_id: shipment.id };
   }
 
@@ -206,6 +232,10 @@ export class PayoutService {
   }
 
   async releaseDue(now = new Date()) {
+    if (process.env.COMMERCE_PAYOUTS_ENABLED === 'false') {
+      this.log.warn('COMMERCE_PAYOUTS_ENABLED=false; payouts were not released');
+      return { paid: 0, seen: 0, paused: true };
+    }
     const due = await this.prisma.payout_releases.findMany({
       where: { status: 'scheduled', hold_until: { lte: now } },
       take: 20,
@@ -214,14 +244,37 @@ export class PayoutService {
     for (const row of due) {
       try {
         const did = await this.payOne(row.id, now);
-        if (did) paid += 1;
+        if (did) {
+          paid += 1;
+          await this.notify?.once(
+            row.payee_user_id,
+            `payout:${row.id}:paid`,
+            'Payout update',
+            'A payout on your account was completed.',
+          );
+        }
       } catch (err) {
+        const attempts = (row.attempts ?? 0) + 1;
+        const failed = attempts >= 5;
         await this.prisma.payout_releases.updateMany({
           where: { id: row.id, status: 'scheduled' },
           data: {
+            attempts,
+            status: failed ? 'failed' : 'scheduled',
             last_error: err instanceof Error ? err.message : String(err),
           },
         });
+        if (failed) {
+          this.log.error(
+            `ALERT payout ${row.id} failed after ${attempts} attempts`,
+          );
+          await this.notify?.once(
+            row.payee_user_id,
+            `payout:${row.id}:failed`,
+            'Payout update',
+            'A payout on your account failed.',
+          );
+        }
       }
     }
     return { paid, seen: due.length };
@@ -236,10 +289,7 @@ export class PayoutService {
     const disputes = await this.prisma.commerce_cases.count({
       where: { order_id: orderId, kind: 'dispute', status: 'open' },
     });
-    const payment = await this.prisma.transactions.findUnique({
-      where: { id: order.payment_transaction_id },
-    });
-    const source = payment?.receiver_wallet_id ?? null;
+    const source = await resolveEscrowWalletId(this.prisma).catch(() => null);
     const merchant = await this.prisma.merchants.findUnique({
       where: { id: order.merchant_id },
     });
@@ -293,10 +343,7 @@ export class PayoutService {
       where: { id: shipmentId },
     });
     if (!shipment?.payment_transaction_id) return;
-    const payment = await this.prisma.transactions.findUnique({
-      where: { id: shipment.payment_transaction_id },
-    });
-    const source = payment?.receiver_wallet_id ?? null;
+    const source = await resolveEscrowWalletId(this.prisma).catch(() => null);
     const price = Number(shipment.price_farm);
     const disputed = await this.prisma.shipment_disputes.count({
       where: { shipment_id: shipmentId },
@@ -392,6 +439,9 @@ export class PayoutService {
       if (!claim.count) return false;
       const row = await tx.payout_releases.findUnique({ where: { id } });
       if (!row?.source_wallet_id) throw new Error('No source wallet');
+      const escrow = await resolveEscrowWalletId(tx);
+      if (row.source_wallet_id !== escrow)
+        throw new Error('Payout source is not the escrow wallet');
       const txn = await tx.transactions.create({
         data: {
           transaction_reference: `payout-${row.id}`,

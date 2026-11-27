@@ -2,6 +2,10 @@ import { PayoutService, PAYOUT_HOLD_MS } from './payout.service';
 
 describe('payout releases', () => {
   const start = new Date('2026-01-01T00:00:00Z');
+  beforeEach(() => {
+    process.env.COMMERCE_ESCROW_WALLET_ID = 'source';
+    delete process.env.COMMERCE_PAYOUTS_ENABLED;
+  });
 
   function harness(balance = 500) {
     const row = {

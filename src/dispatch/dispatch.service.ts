@@ -5,12 +5,13 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
-import { Optional } from '@nestjs/common';
 import { AuditLogService } from '../common/audit/audit-log.service';
 import { cargoTransition } from '../cargo/cargo.service';
 import { EcosystemNotifyService } from '../notifications/ecosystem-notify.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 /**
  * One open job can be claimed by one approved partner. The status update is
@@ -22,6 +23,7 @@ export class DispatchService {
     private readonly prisma: PrismaService,
     private readonly audit?: AuditLogService,
     @Optional() private readonly notify?: EcosystemNotifyService,
+    @Optional() private readonly notifications?: NotificationsService,
   ) {}
 
   async openJob(shipmentId: string) {
@@ -162,7 +164,21 @@ export class DispatchService {
           code_hash: createHash('sha256').update(otp).digest('hex'),
         },
       });
-      return { replayed: false, data: { method: 'otp', otp, verified: false } };
+      const shipment = await this.prisma.cargo_shipments.findUnique({
+        where: { id: job.shipment_id },
+      });
+      if (shipment?.user_id) {
+        await this.notifications?.createInApp(shipment.user_id, {
+          type: 'system',
+          title: 'Delivery code',
+          body: `Your delivery code is ${otp}. Give it only to the person handing you the parcel.`,
+          entityId: jobId,
+        });
+      }
+      return {
+        replayed: false,
+        data: { method: 'otp', sent_to_recipient: true, verified: false },
+      };
     }
     const reference = input.reference?.trim();
     if (!reference) throw new BadRequestException('A reference is required');
@@ -177,16 +193,32 @@ export class DispatchService {
     };
   }
 
-  async verifyProof(jobId: string, code: string) {
+  async verifyProof(userId: string, jobId: string, code: string) {
+    const job = await this.prisma.delivery_jobs.findUnique({
+      where: { id: jobId },
+    });
+    if (!job) throw new NotFoundException('Job not found');
+    const shipment = await this.prisma.cargo_shipments.findUnique({
+      where: { id: job.shipment_id },
+    });
+    if (!shipment || shipment.user_id !== userId)
+      throw new ForbiddenException('Only the recipient can verify this code');
     const proof = await this.prisma.proof_of_delivery.findUnique({
       where: { job_id: jobId },
     });
     if (!proof || proof.method !== 'otp' || !proof.code_hash)
       throw new NotFoundException('No OTP proof is waiting');
     if (proof.verified_at) return { replayed: true, verified: true };
+    if ((proof.failed_attempts ?? 0) >= 5)
+      throw new BadRequestException('Too many attempts');
     const hash = createHash('sha256').update(code.trim()).digest('hex');
-    if (hash !== proof.code_hash)
+    if (hash !== proof.code_hash) {
+      await this.prisma.proof_of_delivery.update({
+        where: { job_id: jobId },
+        data: { failed_attempts: { increment: 1 } },
+      });
       throw new BadRequestException('The code does not match');
+    }
     await this.prisma.proof_of_delivery.update({
       where: { job_id: jobId },
       data: { verified_at: new Date() },

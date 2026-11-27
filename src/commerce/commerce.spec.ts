@@ -45,43 +45,8 @@ describe('dropshipping rules', () => {
 });
 
 describe('markPaid', () => {
-  it('rejects a client success when the server transaction is not completed', async () => {
-    const prisma: any = {
-      transactions: {
-        findUnique: jest
-          .fn()
-          .mockResolvedValue({ id: 't', status: 'pending', amount: 10 }),
-      },
-      sales_orders: { findUnique: jest.fn(), update: jest.fn() },
-    };
-    const svc = new CommerceService(prisma, { log: jest.fn() } as any);
-    await expect(svc.markPaid('o', 't')).rejects.toBeInstanceOf(
-      BadRequestException,
-    );
-    expect(prisma.sales_orders.update).not.toHaveBeenCalled();
-  });
-
-  it('marks paid once when the completed amount matches', async () => {
-    const prisma: any = {
-      transactions: {
-        findUnique: jest.fn().mockResolvedValue({
-          id: 't',
-          status: 'completed',
-          amount: 100,
-        }),
-      },
-      sales_orders: {
-        findUnique: jest.fn().mockResolvedValue({
-          id: 'o',
-          status: 'placed',
-          retail_total: 100,
-          payment_transaction_id: null,
-        }),
-        update: jest.fn().mockResolvedValue({ id: 'o', status: 'paid' }),
-      },
-    };
-    const svc = new CommerceService(prisma, { log: jest.fn() } as any);
-    const row = await svc.markPaid('o', 't');
-    expect(row.status).toBe('paid');
+  it('rejects a pasted transaction id', () => {
+    const svc = new CommerceService({} as any, { log: jest.fn() } as any);
+    expect(() => svc.markPaid('o', 't')).toThrow(BadRequestException);
   });
 });

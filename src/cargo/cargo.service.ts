@@ -6,6 +6,7 @@ import {
 import { Optional } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
 import { money } from '../commerce/order-rules';
+import { resolveEscrowWalletId } from '../commerce/escrow-pay.service';
 import { EcosystemNotifyService } from '../notifications/ecosystem-notify.service';
 
 const NEXT: Record<string, string[]> = {
@@ -99,6 +100,7 @@ export class CargoService {
       transactionId: string;
       pickupAddress?: string;
       deliveryAddress?: string;
+      orderId?: string;
     },
   ) {
     const existing = await this.prisma.cargo_shipments.findUnique({
@@ -114,8 +116,24 @@ export class CargoService {
     const payment = await this.prisma.transactions.findUnique({
       where: { id: input.transactionId },
     });
-    if (!payment || payment.status !== 'completed')
-      throw new BadRequestException('Cargo payment is not completed on the server');
+    if (
+      !payment ||
+      payment.status !== 'completed' ||
+      !payment.transaction_reference?.startsWith('escrow-')
+    )
+      throw new BadRequestException(
+        'Cargo must be paid from your wallet into escrow',
+      );
+    const escrowId = await resolveEscrowWalletId(this.prisma);
+    if (payment.receiver_wallet_id !== escrowId)
+      throw new BadRequestException('Cargo payment did not reach escrow');
+    const sender = payment.sender_wallet_id
+      ? await this.prisma.wallets.findUnique({
+          where: { id: payment.sender_wallet_id },
+        })
+      : null;
+    if (!sender || sender.user_id !== userId)
+      throw new BadRequestException('Cargo payment is not from the caller');
     if (Math.abs(Number(payment.amount) - quote.price_farm) > 0.01)
       throw new BadRequestException('Payment amount does not match the quote');
     const shipment = await this.prisma.cargo_shipments.create({
@@ -128,6 +146,7 @@ export class CargoService {
         price_farm: quote.price_farm,
         status: 'booked',
         payment_transaction_id: input.transactionId,
+        order_id: input.orderId ?? null,
         pickup_address: this.address(input.pickupAddress),
         delivery_address: this.address(input.deliveryAddress),
         farm_share_bps: quote.farm_share_bps,
