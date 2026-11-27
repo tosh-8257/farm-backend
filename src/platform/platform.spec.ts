@@ -1,9 +1,12 @@
+import { existsSync, readFileSync } from 'fs';
 import { ConflictException } from '@nestjs/common';
 import { IdempotencyService, requestHash } from './idempotency.service';
 import { PlatformJobsService } from './platform-jobs.service';
 import { integrationConfig } from './integration-config';
 import { farmRuntime } from './runtime';
 import { isOperationalPermission } from './permissions';
+import { platformStatus } from './platform-status';
+import { PlatformController } from './platform.controller';
 
 describe('runtime and integrations', () => {
   it('treats FARM_RUNTIME=staging as staging even when NODE_ENV is production', () => {
@@ -28,6 +31,116 @@ describe('runtime and integrations', () => {
   it('does not invent a fourth customer role', () => {
     expect(isOperationalPermission('supplier:manage_own')).toBe(true);
     expect(isOperationalPermission('super_customer')).toBe(false);
+  });
+});
+
+describe('public platform status', () => {
+  const shipped = [
+    'dropshipping_lite',
+    'supplier_portal',
+    'cargo_quotes',
+    'cargo_bookings',
+    'partner_assignment',
+    'settlement_records',
+  ];
+
+  function enabled(body: ReturnType<typeof platformStatus>, id: string) {
+    return body.data.modules.find((row) => row.id === id)?.enabled;
+  }
+
+  function integration(
+    body: ReturnType<typeof platformStatus>,
+    provider: string,
+  ) {
+    return body.data.integrations.find((row) => row.provider === provider);
+  }
+
+  it('reports shipped modules on and external providers off', () => {
+    const body = platformStatus({});
+    expect(body.data.runtime).toBe('development');
+    for (const id of shipped) {
+      expect(body.data.modules.find((row) => row.id === id)).toEqual({
+        id,
+        enabled: true,
+        gated_by: null,
+      });
+    }
+    for (const provider of ['shopify', 'woocommerce', 'maps', 'x402']) {
+      expect(integration(body, provider)).toMatchObject({
+        provider,
+        enabled: false,
+        verified: false,
+      });
+      expect(enabled(body, provider)).toBe(false);
+    }
+    expect(body.data.commission).toEqual({ enabled: false, bps: null });
+    expect(enabled(body, 'commission')).toBe(false);
+  });
+
+  it('does not turn shipped modules off for staging or production', () => {
+    for (const runtime of ['staging', 'production']) {
+      const body = platformStatus({ FARM_RUNTIME: runtime });
+      expect(body.data.runtime).toBe(runtime);
+      expect(shipped.every((id) => enabled(body, id) === true)).toBe(true);
+    }
+  });
+
+  it('enables an integration only when its flag is the string true', () => {
+    const body = platformStatus({
+      SHOPIFY_ENABLED: 'true',
+      WOOCOMMERCE_ENABLED: 'yes',
+      MAPS_ENABLED: 'true',
+      X402_ENABLED: 'true',
+    });
+    expect(integration(body, 'shopify')?.enabled).toBe(true);
+    expect(integration(body, 'shopify')?.verified).toBe(false);
+    expect(integration(body, 'woocommerce')?.enabled).toBe(false);
+    expect(integration(body, 'maps')).toMatchObject({
+      enabled: true,
+      verified: false,
+    });
+    expect(integration(body, 'x402')?.enabled).toBe(true);
+    expect(enabled(body, 'shopify')).toBe(true);
+    expect(enabled(body, 'woocommerce')).toBe(false);
+  });
+
+  it('enables commission only when DROPSHIP_COMMISSION_BPS is a valid rate', () => {
+    expect(platformStatus({}).data.commission.enabled).toBe(false);
+    expect(
+      platformStatus({ DROPSHIP_COMMISSION_BPS: '' }).data.commission.enabled,
+    ).toBe(false);
+    expect(
+      platformStatus({ DROPSHIP_COMMISSION_BPS: '10%' }).data.commission
+        .enabled,
+    ).toBe(false);
+    const on = platformStatus({ DROPSHIP_COMMISSION_BPS: '1000' });
+    expect(on.data.commission).toEqual({ enabled: true, bps: 1000 });
+    expect(enabled(on, 'commission')).toBe(true);
+    expect(shipped.every((id) => enabled(on, id) === true)).toBe(true);
+  });
+
+  it('returns that body from the public controller', () => {
+    expect(new PlatformController().status()).toEqual(platformStatus());
+  });
+
+  it('keeps phase 1-6 migrations on the deploy start command', () => {
+    expect(readFileSync('start.sh', 'utf8')).toContain(
+      'prisma/build/index.js migrate deploy',
+    );
+    const pkg = JSON.parse(readFileSync('package.json', 'utf8')) as {
+      scripts: { start: string };
+    };
+    expect(pkg.scripts.start).toContain('migrate deploy');
+    for (const dir of [
+      '20261128090000_phase1_foundation',
+      '20261128100000_phase2_dropshipping',
+      '20261128110000_phase3_external_stores',
+      '20261128120000_phase4_cargo',
+      '20261128130000_phase5_dispatch',
+      '20261128140000_phase6_settlements',
+    ]) {
+      expect(existsSync(`prisma/migrations/${dir}/migration.sql`)).toBe(true);
+    }
   });
 });
 
