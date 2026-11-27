@@ -4,10 +4,12 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { AuditLogService } from '../common/audit/audit-log.service';
+import { EcosystemNotifyService } from '../notifications/ecosystem-notify.service';
 import {
   commissionBps,
   commissionFarm,
@@ -22,6 +24,7 @@ export class CommerceService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditLogService,
+    @Optional() private readonly notify?: EcosystemNotifyService,
   ) {}
 
   async applySupplier(
@@ -89,7 +92,7 @@ export class CommerceService {
   quote(retail: number, wholesale: number) {
     const bps = commissionBps();
     return {
-      ...margin(retail, wholesale, commissionFarm(retail, bps)),
+      ...margin(retail, wholesale, commissionFarm(wholesale, bps)),
       commission_bps: bps,
     };
   }
@@ -202,7 +205,7 @@ export class CommerceService {
         });
       }
       await tx.sales_order_items.createMany({ data: items });
-      const fee = commissionFarm(retail, commissionBps());
+      const fee = commissionFarm(wholesale, commissionBps());
       const saved = await tx.sales_orders.update({
         where: { id: order.id },
         data: {
@@ -216,30 +219,47 @@ export class CommerceService {
     });
   }
 
-  /** Paid only when a completed server transaction exists. No client flag. */
-  async markPaid(orderId: string, transactionId: string) {
+  async payableOrder(userId: string, orderId: string) {
+    const merchant = await this.approvedMerchant(userId);
+    return this.requireOrder(orderId, merchant.id);
+  }
+
+  /** A pasted transaction id is not a payment. */
+  markPaid(_orderId: string, _transactionId: string): never {
+    throw new BadRequestException(
+      'A pasted transaction id is not accepted. Pay from your wallet with your PIN or biometrics.',
+    );
+  }
+
+  /** Binds a server-created escrow charge to this merchant's order. */
+  async bindEscrowPayment(merchantUserId: string, orderId: string, transactionId: string) {
+    const merchant = await this.approvedMerchant(merchantUserId);
+    const order = await this.requireOrder(orderId, merchant.id);
     const tx = await this.prisma.transactions.findUnique({
       where: { id: transactionId },
     });
-    if (!tx || tx.status !== 'completed')
-      throw new BadRequestException('Payment is not completed on the server');
-    const order = await this.prisma.sales_orders.findUnique({
-      where: { id: orderId },
-    });
-    if (!order) throw new NotFoundException('Order not found');
+    if (!tx || tx.status !== 'completed' || !tx.transaction_reference.startsWith('escrow-'))
+      throw new BadRequestException('Payment was not charged into escrow');
     if (
       order.status === 'paid' &&
       order.payment_transaction_id === transactionId
     )
-      return order;
+      return { replayed: true, order };
     if (!orderTransition(order.status, 'paid'))
       throw new BadRequestException(`Cannot mark ${order.status} as paid`);
     if (Math.abs(Number(tx.amount) - Number(order.retail_total)) > 0.01)
       throw new BadRequestException('Payment amount does not match the order');
-    return this.prisma.sales_orders.update({
+    const paid = await this.prisma.sales_orders.update({
       where: { id: orderId },
       data: { status: 'paid', payment_transaction_id: transactionId },
     });
+    await this.notify?.once(
+      merchantUserId,
+      `order:${orderId}:paid`,
+      'Order update',
+      'An order was paid.',
+    );
+    return { replayed: false, order: paid };
   }
 
   async forward(merchantUserId: string, orderId: string) {
@@ -292,6 +312,20 @@ export class CommerceService {
       data: { status: decision },
     });
     if (decision === 'rejected') await this.releaseOrderStock(row.order_id);
+    const order = await this.prisma.sales_orders.findUnique({
+      where: { id: row.order_id },
+    });
+    const merchant = order
+      ? await this.prisma.merchants.findUnique({ where: { id: order.merchant_id } })
+      : null;
+    await this.notify?.once(
+      merchant?.user_id,
+      `fulfilment:${fulfilmentId}:${decision}`,
+      'Order update',
+      decision === 'accepted'
+        ? 'A supplier accepted an order.'
+        : 'A supplier rejected an order.',
+    );
     return updated;
   }
 

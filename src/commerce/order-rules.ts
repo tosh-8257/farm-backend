@@ -41,7 +41,11 @@ export function orderTransition(from: string, to: string) {
   return (ORDER_NEXT[from] ?? []).includes(to);
 }
 
-/** Basis points from env. Unset means the fee is not configured, not 10%. */
+/**
+ * Basis points from env. Unset means the fee is not configured.
+ * Production sets DROPSHIP_COMMISSION_BPS=1000. The base is the supplier
+ * item price, not retail, shipping, or other fees.
+ */
 export function commissionBps(
   env: Record<string, string | undefined> = process.env,
 ) {
@@ -56,9 +60,10 @@ export function money(n: number) {
   return Math.round(n * 100) / 100;
 }
 
-export function commissionFarm(retail: number, bps: number | null) {
+/** Commission on the supplier item price. Shipping and other fees are excluded. */
+export function commissionFarm(supplierItemPrice: number, bps: number | null) {
   if (bps == null) return null;
-  return money((retail * bps) / 10_000);
+  return money((supplierItemPrice * bps) / 10_000);
 }
 
 export function margin(retail: number, wholesale: number, fee: number | null) {

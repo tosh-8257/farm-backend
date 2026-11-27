@@ -1,6 +1,7 @@
 import { Body, Controller, Param, ParseUUIDPipe, Post, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { IsUUID } from 'class-validator';
+import { IsString, IsUUID, MinLength } from 'class-validator';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { JwtGuard } from '../common/guards/jwt.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -9,6 +10,9 @@ import { DispatchService } from './dispatch.service';
 
 class AssignDto {
   @IsUUID() partnerId!: string;
+}
+class FailDto {
+  @IsString() @MinLength(2) reason!: string;
 }
 
 @ApiTags('Admin - Dispatch')
@@ -27,5 +31,23 @@ export class DispatchController {
   @Post('jobs/:id/assign')
   assign(@Param('id', ParseUUIDPipe) id: string, @Body() dto: AssignDto) {
     return this.dispatch.assign(id, dto.partnerId);
+  }
+
+  @Post('jobs/:id/reassign')
+  reassign(
+    @CurrentUser() u: any,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: AssignDto,
+  ) {
+    return this.dispatch.reassign(id, dto.partnerId, u.id);
+  }
+
+  @Post('jobs/:id/fail')
+  fail(
+    @CurrentUser() u: any,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: FailDto,
+  ) {
+    return this.dispatch.fail(id, dto.reason, u.id);
   }
 }

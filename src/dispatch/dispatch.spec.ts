@@ -35,6 +35,60 @@ describe('dispatch assignment', () => {
     expect(row.id).toBe('a');
   });
 
+  it('reassigns once and refuses a second move to the same partner', async () => {
+    const prisma: any = {
+      delivery_partner_profiles: { findUnique: jest.fn().mockResolvedValue(approved) },
+      delivery_jobs: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'j',
+          status: 'assigned',
+          assignment: { partner_id: 'old' },
+        }),
+      },
+      delivery_assignments: {
+        update: jest.fn().mockResolvedValue({ job_id: 'j', partner_id: 'p' }),
+      },
+      delivery_job_events: { create: jest.fn() },
+    };
+    const svc = new DispatchService(prisma);
+    const moved = await svc.reassign('j', 'p', 'admin');
+    expect(moved.replayed).toBe(false);
+    prisma.delivery_jobs.findUnique.mockResolvedValue({
+      id: 'j',
+      status: 'assigned',
+      assignment: { partner_id: 'p' },
+    });
+    const again = await svc.reassign('j', 'p', 'admin');
+    expect(again.replayed).toBe(true);
+  });
+
+  it('marks a failed delivery without inventing a second failure', async () => {
+    const prisma: any = {
+      delivery_jobs: {
+        findUnique: jest
+          .fn()
+          .mockResolvedValue({ id: 'j', status: 'assigned', shipment_id: 's' }),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+      cargo_shipments: {
+        findUnique: jest.fn().mockResolvedValue({ id: 's', status: 'booked' }),
+        update: jest.fn(),
+      },
+      delivery_job_events: { create: jest.fn() },
+    };
+    const svc = new DispatchService(prisma);
+    const out = await svc.fail('j', 'Recipient unavailable', 'admin');
+    expect(out.replayed).toBe(false);
+    expect(prisma.cargo_shipments.update).toHaveBeenCalled();
+    prisma.delivery_jobs.findUnique.mockResolvedValue({
+      id: 'j',
+      status: 'failed',
+      shipment_id: 's',
+    });
+    const again = await svc.fail('j', 'Recipient unavailable', 'admin');
+    expect(again.replayed).toBe(true);
+  });
+
   it('loses the race when the job was already claimed', async () => {
     const prisma: any = {
       delivery_partner_profiles: { findUnique: jest.fn().mockResolvedValue(approved) },

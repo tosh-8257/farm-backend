@@ -2514,6 +2514,7 @@ model supplier_profiles {
   kind         String    @db.VarChar(20)
   legal_name   String    @db.VarChar(255)
   region       String?   @db.VarChar(120)
+  regions      String?
   terms        String?
   status       String    @default("draft") @db.VarChar(40)
   review_notes String?
@@ -2545,10 +2546,23 @@ model product_variants {
   wholesale_price  Decimal  @db.Decimal(30, 8)
   stock            Int      @default(0)
   reserved         Int      @default(0)
+  image_url        String?
   product          supplier_products @relation(fields: [product_id], references: [id], onDelete: Cascade)
   listings         store_listings[]
+  stock_writes     variant_stock_writes[]
 
   @@unique([product_id, sku])
+}
+
+model variant_stock_writes {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  variant_id      String   @db.Uuid
+  idempotency_key String   @db.VarChar(120)
+  stock           Int
+  created_at      DateTime @default(now()) @db.Timestamptz(6)
+  variant         product_variants @relation(fields: [variant_id], references: [id], onDelete: Cascade)
+
+  @@unique([variant_id, idempotency_key])
 }
 
 model store_listings {
@@ -2569,7 +2583,7 @@ model sales_orders {
   buyer_user_id          String?  @db.Uuid
   idempotency_key        String   @db.VarChar(120)
   status                 String   @default("placed") @db.VarChar(20)
-  payment_transaction_id String?  @db.Uuid
+  payment_transaction_id String?  @unique @db.Uuid
   retail_total           Decimal  @default(0) @db.Decimal(30, 8)
   supplier_total         Decimal  @default(0) @db.Decimal(30, 8)
   commission_bps         Int?
@@ -2599,6 +2613,7 @@ model supplier_fulfilments {
   order_id    String   @db.Uuid
   supplier_id String   @db.Uuid
   status      String   @default("pending") @db.VarChar(20)
+  tracking    String?
   created_at  DateTime @default(now()) @db.Timestamptz(6)
   order       sales_orders @relation(fields: [order_id], references: [id], onDelete: Cascade)
 
@@ -2632,12 +2647,21 @@ model cargo_rates {
   id         String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   from_zone  String  @db.VarChar(40)
   to_zone    String  @db.VarChar(40)
-  min_kg     Decimal @db.Decimal(10, 3)
-  max_kg     Decimal @db.Decimal(10, 3)
-  price_farm Decimal @db.Decimal(30, 8)
-  active     Boolean @default(true)
+  min_kg        Decimal  @db.Decimal(10, 3)
+  max_kg        Decimal  @db.Decimal(10, 3)
+  price_farm    Decimal  @db.Decimal(30, 8)
+  base_fee_farm Decimal? @db.Decimal(30, 8)
+  per_kg_farm   Decimal? @db.Decimal(30, 8)
+  active        Boolean  @default(true)
 
   @@index([from_zone, to_zone, active])
+}
+
+/// One row. Farm plus partner shares are basis points and sum to 10000.
+model cargo_revenue_settings {
+  id                Int @id @default(1)
+  farm_share_bps    Int @default(2000)
+  partner_share_bps Int @default(8000)
 }
 
 model cargo_shipments {
@@ -2649,7 +2673,12 @@ model cargo_shipments {
   weight_kg              Decimal  @db.Decimal(10, 3)
   price_farm             Decimal  @db.Decimal(30, 8)
   status                 String   @default("quoted") @db.VarChar(20)
-  payment_transaction_id String?  @db.Uuid
+  payment_transaction_id String?  @unique @db.Uuid
+  order_id               String?  @db.Uuid
+  pickup_address         String?
+  delivery_address       String?
+  farm_share_bps         Int?
+  partner_share_bps      Int?
   created_at             DateTime @default(now()) @db.Timestamptz(6)
   events                 cargo_shipment_events[]
 
@@ -2669,13 +2698,21 @@ model cargo_shipment_events {
 }
 
 model delivery_partner_profiles {
-  id                  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  user_id             String    @unique @db.Uuid
-  kind                String    @db.VarChar(40)
-  legal_name          String    @db.VarChar(255)
-  status              String    @default("submitted") @db.VarChar(40)
-  document_expires_at DateTime? @db.Timestamptz(6)
-  created_at          DateTime  @default(now()) @db.Timestamptz(6)
+  id                   String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id              String    @unique @db.Uuid
+  kind                 String    @db.VarChar(40)
+  legal_name           String    @db.VarChar(255)
+  status               String    @default("submitted") @db.VarChar(40)
+  phone                String?   @db.VarChar(30)
+  service_area         String?   @db.VarChar(120)
+  company_registration String?   @db.VarChar(80)
+  online               Boolean   @default(false)
+  document_expires_at  DateTime? @db.Timestamptz(6)
+  created_at           DateTime  @default(now()) @db.Timestamptz(6)
+  vehicles             partner_vehicles[]
+  drivers              partner_drivers[]
+  documents            partner_documents[]
+  locations            partner_locations[]
 }
 
 model delivery_jobs {
@@ -2684,6 +2721,8 @@ model delivery_jobs {
   status      String   @default("open") @db.VarChar(20)
   created_at  DateTime @default(now()) @db.Timestamptz(6)
   assignment  delivery_assignments?
+  proof       proof_of_delivery?
+  events      delivery_job_events[]
 }
 
 model delivery_assignments {
@@ -2692,6 +2731,107 @@ model delivery_assignments {
   partner_id String   @db.Uuid
   created_at DateTime @default(now()) @db.Timestamptz(6)
   job        delivery_jobs @relation(fields: [job_id], references: [id], onDelete: Cascade)
+}
+
+model partner_vehicles {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  partner_id   String   @db.Uuid
+  category     String   @db.VarChar(40)
+  make_model   String   @db.VarChar(120)
+  registration String   @db.VarChar(40)
+  capacity_kg  Decimal  @db.Decimal(10, 3)
+  partner      delivery_partner_profiles @relation(fields: [partner_id], references: [id], onDelete: Cascade)
+
+  @@index([partner_id])
+}
+
+model partner_drivers {
+  id          String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  partner_id  String @db.Uuid
+  legal_name  String @db.VarChar(255)
+  licence_ref String @db.VarChar(80)
+  partner     delivery_partner_profiles @relation(fields: [partner_id], references: [id], onDelete: Cascade)
+
+  @@index([partner_id])
+}
+
+model partner_documents {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  partner_id String    @db.Uuid
+  kind       String    @db.VarChar(40)
+  expires_at DateTime? @db.Timestamptz(6)
+  partner    delivery_partner_profiles @relation(fields: [partner_id], references: [id], onDelete: Cascade)
+
+  @@index([expires_at])
+}
+
+model partner_locations {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  partner_id  String   @db.Uuid
+  job_id      String   @db.Uuid
+  lat         Decimal  @db.Decimal(9, 6)
+  lng         Decimal  @db.Decimal(9, 6)
+  recorded_at DateTime @default(now()) @db.Timestamptz(6)
+  partner     delivery_partner_profiles @relation(fields: [partner_id], references: [id], onDelete: Cascade)
+
+  @@index([job_id, recorded_at])
+}
+
+model commerce_settings {
+  id             Int @id @default(1)
+  commission_bps Int @default(1000)
+}
+
+model supplier_documents {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  supplier_id String    @db.Uuid
+  kind        String    @db.VarChar(40)
+  expires_at  DateTime? @db.Timestamptz(6)
+
+  @@index([supplier_id])
+}
+
+model supplier_ratings {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  supplier_id String   @db.Uuid
+  user_id     String   @db.Uuid
+  score       Int
+  created_at  DateTime @default(now()) @db.Timestamptz(6)
+
+  @@unique([supplier_id, user_id])
+}
+
+model partner_ratings {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  partner_id String   @db.Uuid
+  user_id    String   @db.Uuid
+  score      Int
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+
+  @@unique([partner_id, user_id])
+}
+
+model proof_of_delivery {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  job_id      String    @unique @db.Uuid
+  method      String    @db.VarChar(20)
+  code_hash      String?   @db.VarChar(64)
+  reference      String?   @db.VarChar(500)
+  failed_attempts Int      @default(0)
+  verified_at    DateTime? @db.Timestamptz(6)
+  created_at  DateTime  @default(now()) @db.Timestamptz(6)
+  job         delivery_jobs @relation(fields: [job_id], references: [id], onDelete: Cascade)
+}
+
+model delivery_job_events {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  job_id     String   @db.Uuid
+  status     String   @db.VarChar(40)
+  note       String?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  job        delivery_jobs @relation(fields: [job_id], references: [id], onDelete: Cascade)
+
+  @@index([job_id, created_at])
 }
 
 /// Reconcilable split for a paid dropshipping order. Does not move wallet balances.
@@ -2705,4 +2845,60 @@ model commerce_settlements {
   lines             Json
   status            String   @default("recorded") @db.VarChar(20)
   created_at        DateTime @default(now()) @db.Timestamptz(6)
+}
+
+/// Return, dispute, or cancellation record. Ledger lines are memos.
+/// Wallet balances are not changed.
+model commerce_cases {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  order_id        String   @db.Uuid
+  kind            String   @db.VarChar(20)
+  status          String   @default("open") @db.VarChar(20)
+  reason          String
+  idempotency_key String   @db.VarChar(120)
+  opened_by       String   @db.Uuid
+  ledger          Json
+  created_at      DateTime @default(now()) @db.Timestamptz(6)
+
+  @@unique([order_id, idempotency_key])
+  @@index([order_id, kind])
+}
+
+/// Wallet payout after delivery plus a 24 hour dispute hold.
+/// A frozen row is not paid. Paid rows reverse through the admin path.
+model payout_releases {
+  id                       String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  idempotency_key          String    @unique @db.VarChar(160)
+  kind                     String    @db.VarChar(80)
+  subject_type             String    @db.VarChar(20)
+  subject_id               String    @db.Uuid
+  payee_user_id            String?   @db.Uuid
+  source_wallet_id         String?   @db.Uuid
+  amount                   Decimal   @db.Decimal(30, 8)
+  status                   String    @default("scheduled") @db.VarChar(20)
+  attempts                 Int       @default(0)
+  hold_until               DateTime  @db.Timestamptz(6)
+  paid_transaction_id      String?   @db.Uuid
+  reversal_transaction_id  String?   @db.Uuid
+  last_error               String?
+  created_at               DateTime  @default(now()) @db.Timestamptz(6)
+
+  @@unique([kind, subject_id])
+  @@index([status, hold_until])
+}
+
+model event_notices {
+  event_key  String   @id @db.VarChar(160)
+  user_id    String   @db.Uuid
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+}
+
+model shipment_disputes {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  shipment_id String   @db.Uuid
+  user_id     String   @db.Uuid
+  reason      String
+  created_at  DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([shipment_id])
 }

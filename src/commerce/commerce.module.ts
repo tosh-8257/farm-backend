@@ -1,20 +1,52 @@
 import { Module } from '@nestjs/common';
 import { AuditModule } from '../common/audit/audit.module';
+import { PayoutModule } from '../payouts/payout.module';
+import { EscrowModule } from './escrow.module';
+import { EcosystemOpsService } from './ecosystem-ops.service';
+import { SupplierTimeoutService } from './supplier-timeout.service';
+import {
+  AdminOpsController,
+  CargoOpsController,
+  PartnerOpsController,
+  SellerOpsController,
+  SupplierOpsController,
+} from './ecosystem-ops.controller';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { AuthModule } from '../auth/auth.module';
 import { CommerceService } from './commerce.service';
 import { BusinessOpsModule } from '../business-ops/business-ops.module';
 import { ExternalStoresService } from './external-stores.service';
 import { ExternalStoresController } from './external-stores.controller';
-import { CommerceAiController, SettlementController } from './settlement.controller';
+import {
+  CommerceAiController,
+  SettlementController,
+} from './settlement.controller';
 import { SettlementService } from './settlement.service';
 import {
   AdminSuppliersController,
   MerchantDropshipController,
   SupplierController,
 } from './commerce.controller';
+import { CatalogueService } from './catalogue.service';
+import {
+  MerchantCatalogueController,
+  SupplierCatalogueController,
+} from './catalogue.controller';
+import { OrderCasesService } from './order-cases.service';
+import {
+  MerchantOrderCasesController,
+  SupplierOrdersController,
+} from './order-cases.controller';
 
 @Module({
-  imports: [AuditModule, AuthModule, BusinessOpsModule],
+  imports: [
+    AuditModule,
+    AuthModule,
+    BusinessOpsModule,
+    PayoutModule,
+    NotificationsModule,
+    EscrowModule,
+  ],
   controllers: [
     SupplierController,
     MerchantDropshipController,
@@ -22,8 +54,25 @@ import {
     ExternalStoresController,
     CommerceAiController,
     SettlementController,
+    SupplierCatalogueController,
+    MerchantCatalogueController,
+    MerchantOrderCasesController,
+    SupplierOrdersController,
+    CargoOpsController,
+    PartnerOpsController,
+    AdminOpsController,
+    SellerOpsController,
+    SupplierOpsController,
   ],
-  providers: [CommerceService, ExternalStoresService, SettlementService],
+  providers: [
+    CommerceService,
+    ExternalStoresService,
+    SettlementService,
+    CatalogueService,
+    OrderCasesService,
+    EcosystemOpsService,
+    SupplierTimeoutService,
+  ],
   exports: [CommerceService, ExternalStoresService, SettlementService],
 })
 export class CommerceModule {}
