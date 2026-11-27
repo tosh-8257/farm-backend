@@ -19,6 +19,7 @@ export class OrderCasesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly commerce: CommerceService,
+    private readonly payouts?: { freezeOrder(orderId: string): Promise<unknown> },
   ) {}
 
   async listForMerchant(userId: string) {
@@ -105,6 +106,7 @@ export class OrderCasesService {
       throw new BadRequestException(
         'Returns and disputes start from a paid order',
       );
+    if (kind === 'dispute') await this.payouts?.freezeOrder(orderId);
     const ledger = {
       balances_moved: false,
       retail: Number(order.retail_total),

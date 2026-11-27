@@ -58,6 +58,7 @@ import { PlatformModule } from './platform/platform.module';
 import { CommerceModule } from './commerce/commerce.module';
 import { CargoModule } from './cargo/cargo.module';
 import { DispatchModule } from './dispatch/dispatch.module';
+import { PayoutModule } from './payouts/payout.module';
 import { ExpiryTasksService } from './common/tasks/expiry-tasks.service';
 import { IvorypayRetiredMiddleware } from './common/middleware/ivorypay-retired.middleware';
 import { IdempotencyMiddleware } from './common/middleware/idempotency.middleware';
@@ -142,6 +143,7 @@ import { IdempotencyMiddleware } from './common/middleware/idempotency.middlewar
     CommerceModule,
     CargoModule,
     DispatchModule,
+    PayoutModule,
     AgentPaymentsModule,
     X402Module,
     SettingsModule,

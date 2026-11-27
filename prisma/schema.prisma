@@ -2800,3 +2800,35 @@ model commerce_cases {
   @@unique([order_id, idempotency_key])
   @@index([order_id, kind])
 }
+
+/// Wallet payout after delivery plus a 24 hour dispute hold.
+/// A frozen row is not paid. Paid rows reverse through the admin path.
+model payout_releases {
+  id                       String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  idempotency_key          String    @unique @db.VarChar(160)
+  kind                     String    @db.VarChar(30)
+  subject_type             String    @db.VarChar(20)
+  subject_id               String    @db.Uuid
+  payee_user_id            String?   @db.Uuid
+  source_wallet_id         String?   @db.Uuid
+  amount                   Decimal   @db.Decimal(30, 8)
+  status                   String    @default("scheduled") @db.VarChar(20)
+  hold_until               DateTime  @db.Timestamptz(6)
+  paid_transaction_id      String?   @db.Uuid
+  reversal_transaction_id  String?   @db.Uuid
+  last_error               String?
+  created_at               DateTime  @default(now()) @db.Timestamptz(6)
+
+  @@unique([kind, subject_id])
+  @@index([status, hold_until])
+}
+
+model shipment_disputes {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  shipment_id String   @db.Uuid
+  user_id     String   @db.Uuid
+  reason      String
+  created_at  DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([shipment_id])
+}

@@ -8,8 +8,8 @@ import { money } from '../commerce/order-rules';
 
 const NEXT: Record<string, string[]> = {
   quoted: ['booked', 'cancelled'],
-  booked: ['picked_up', 'cancelled', 'failed'],
-  picked_up: ['in_transit', 'failed'],
+  booked: ['picked_up', 'delivered', 'cancelled', 'failed'],
+  picked_up: ['in_transit', 'delivered', 'failed'],
   in_transit: ['delivered', 'failed'],
   delivered: [],
   failed: [],
