@@ -3,8 +3,10 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { Optional } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
 import { money } from '../commerce/order-rules';
+import { EcosystemNotifyService } from '../notifications/ecosystem-notify.service';
 
 const NEXT: Record<string, string[]> = {
   quoted: ['booked', 'cancelled'],
@@ -26,7 +28,10 @@ export function cargoTransition(from: string, to: string) {
  */
 @Injectable()
 export class CargoService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly notify?: EcosystemNotifyService,
+  ) {}
 
   async quote(fromZone: string, toZone: string, weightKg: number) {
     if (!(weightKg > 0)) throw new BadRequestException('Weight must be positive');
@@ -132,6 +137,12 @@ export class CargoService {
         },
       },
     });
+    await this.notify?.once(
+      userId,
+      `shipment:${shipment.id}:booked`,
+      'Shipment update',
+      'A shipment on your account was updated.',
+    );
     return { replayed: false, shipment };
   }
 

@@ -5,7 +5,9 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { Optional } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
+import { EcosystemNotifyService } from '../notifications/ecosystem-notify.service';
 import { CommerceService } from './commerce.service';
 
 const PAID = ['paid', 'forwarded', 'accepted', 'fulfilled'];
@@ -19,7 +21,9 @@ export class OrderCasesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly commerce: CommerceService,
+    @Optional()
     private readonly payouts?: { freezeOrder(orderId: string): Promise<unknown> },
+    @Optional() private readonly notify?: EcosystemNotifyService,
   ) {}
 
   async listForMerchant(userId: string) {
@@ -82,6 +86,12 @@ export class OrderCasesService {
         },
       });
     });
+    await this.notify?.once(
+      userId,
+      `order:${orderId}:cancelled`,
+      'Order update',
+      'An order on your account was updated.',
+    );
     return { replayed: false, data: row };
   }
 
@@ -138,6 +148,12 @@ export class OrderCasesService {
         });
         return created;
       });
+      await this.notify?.once(
+        userId,
+        `order:${orderId}:${kind}`,
+        'Order update',
+        'An order on your account was updated.',
+      );
       return { replayed: false, data: row };
     } catch (e) {
       if (

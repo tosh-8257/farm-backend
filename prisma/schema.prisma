@@ -2823,6 +2823,12 @@ model payout_releases {
   @@index([status, hold_until])
 }
 
+model event_notices {
+  event_key  String   @id @db.VarChar(160)
+  user_id    String   @db.Uuid
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+}
+
 model shipment_disputes {
   id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   shipment_id String   @db.Uuid

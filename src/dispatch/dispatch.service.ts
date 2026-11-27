@@ -7,8 +7,10 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
+import { Optional } from '@nestjs/common';
 import { AuditLogService } from '../common/audit/audit-log.service';
 import { cargoTransition } from '../cargo/cargo.service';
+import { EcosystemNotifyService } from '../notifications/ecosystem-notify.service';
 
 /**
  * One open job can be claimed by one approved partner. The status update is
@@ -19,6 +21,7 @@ export class DispatchService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit?: AuditLogService,
+    @Optional() private readonly notify?: EcosystemNotifyService,
   ) {}
 
   async openJob(shipmentId: string) {
@@ -46,9 +49,16 @@ export class DispatchService {
     });
     if (!claim.count)
       throw new ConflictException('This job is no longer open');
-    return this.prisma.delivery_assignments.create({
+    const assignment = await this.prisma.delivery_assignments.create({
       data: { job_id: jobId, partner_id: partnerId },
     });
+    await this.notify?.once(
+      partner.user_id,
+      `job:${jobId}:assigned`,
+      'Delivery job',
+      'A delivery job assigned to you was updated.',
+    );
+    return assignment;
   }
 
   async reassign(jobId: string, partnerId: string, adminId: string, now = new Date()) {
