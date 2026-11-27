@@ -1,5 +1,19 @@
 # Spec gap matrix
 
+## Current state (27 Nov 2026)
+
+This file was first written against `main` `6f0717e4`. The ecosystem stack and the deposit fix moved after that.
+
+- The 5 USDC case in the original audit is the separate auto-credit pull request https://github.com/tosh-8257/farm-backend/pull/58. It is not merged. A later 4.999039 USDC transfer is the example the sweep is built to pick up after deploy. Neither transfer was credited by this documentation change.
+- Tokenization is already live (`TOKENIZATION_ENABLED=true`, `TOKENIZATION_NETWORK=mainnet`). It is not a pending go-live.
+- x402 stays off.
+- Group A backend work is PRs #48 through #57, then money-safety #59 and operations #60, stacked in that order. #58 is independent, based on `main`.
+- P0 payment binding, escrow-only payouts, recipient OTP, and the payout kill switch are in #59. They are not on `main` until that stack is merged.
+- Fraud and retention notes in #60 are drafts for legal review, not adopted policy.
+- Staging end-to-end verification is still not done. A module is not production-ready under the spec’s Definition of Done.
+
+The tables below describe `6f0717e4` and farm1 `541ab5b0`. Read them as the baseline, then apply this section.
+
 Reviewed against the FARM master engineering spec. Sources of truth:
 
 - farm-backend `main` at `6f0717e4` (merge of PR #46).
