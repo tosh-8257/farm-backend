@@ -89,7 +89,7 @@ export class CommerceService {
   quote(retail: number, wholesale: number) {
     const bps = commissionBps();
     return {
-      ...margin(retail, wholesale, commissionFarm(retail, bps)),
+      ...margin(retail, wholesale, commissionFarm(wholesale, bps)),
       commission_bps: bps,
     };
   }
@@ -202,7 +202,7 @@ export class CommerceService {
         });
       }
       await tx.sales_order_items.createMany({ data: items });
-      const fee = commissionFarm(retail, commissionBps());
+      const fee = commissionFarm(wholesale, commissionBps());
       const saved = await tx.sales_orders.update({
         where: { id: order.id },
         data: {

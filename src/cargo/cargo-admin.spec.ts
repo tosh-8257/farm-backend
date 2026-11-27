@@ -2,12 +2,10 @@ import { ConflictException } from '@nestjs/common';
 import { CargoAdminService } from './cargo-admin.service';
 
 describe('cargo admin rates', () => {
-  it('refuses an overlapping active band', async () => {
+  it('refuses a second active rate for the same zones', async () => {
     const prisma: any = {
       cargo_rates: {
-        findMany: jest.fn().mockResolvedValue([
-          { min_kg: 0, max_kg: 5 },
-        ]),
+        findFirst: jest.fn().mockResolvedValue({ id: 'old' }),
         create: jest.fn(),
       },
     };
@@ -16,9 +14,8 @@ describe('cargo admin rates', () => {
       svc.create('admin', {
         fromZone: 'Nairobi',
         toZone: 'Mombasa',
-        minKg: 4,
-        maxKg: 8,
-        priceFarm: 100,
+        baseFeeFarm: 50,
+        perKgFarm: 10,
       }),
     ).rejects.toBeInstanceOf(ConflictException);
     expect(prisma.cargo_rates.create).not.toHaveBeenCalled();

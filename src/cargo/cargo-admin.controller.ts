@@ -20,9 +20,12 @@ import { CargoAdminService } from './cargo-admin.service';
 class RateDto {
   @IsString() @MinLength(1) fromZone!: string;
   @IsString() @MinLength(1) toZone!: string;
-  @IsNumber() @Min(0) minKg!: number;
-  @IsNumber() @Min(0) maxKg!: number;
-  @IsNumber() @Min(0.01) priceFarm!: number;
+  @IsNumber() @Min(0) baseFeeFarm!: number;
+  @IsNumber() @Min(0) perKgFarm!: number;
+}
+class SplitDto {
+  @IsNumber() farmShareBps!: number;
+  @IsNumber() partnerShareBps!: number;
 }
 class ActiveDto {
   @IsBoolean() active!: boolean;
@@ -49,6 +52,11 @@ export class CargoAdminController {
   @Post('rates')
   create(@CurrentUser() u: any, @Body() dto: RateDto) {
     return this.admin.create(u.id, dto);
+  }
+
+  @Patch('split')
+  split(@CurrentUser() u: any, @Body() dto: SplitDto) {
+    return this.admin.setSplit(u.id, dto);
   }
 
   @Patch('rates/:id')

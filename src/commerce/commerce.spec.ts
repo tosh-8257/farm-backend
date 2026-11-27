@@ -18,9 +18,22 @@ describe('dropshipping rules', () => {
     });
   });
 
-  it('uses a configured basis-point rate', () => {
+  it('charges 10% of the supplier item price, not retail or shipping', () => {
     expect(commissionBps({ DROPSHIP_COMMISSION_BPS: '1000' })).toBe(1000);
-    expect(commissionFarm(1000, 1000)).toBe(100);
+    expect(commissionFarm(700, 1000)).toBe(70);
+    expect(margin(1000, 700, 70)).toMatchObject({
+      commission_farm: 70,
+      estimated_net: 230,
+    });
+    const svc = new CommerceService({} as any, { log: jest.fn() } as any);
+    const prev = process.env.DROPSHIP_COMMISSION_BPS;
+    process.env.DROPSHIP_COMMISSION_BPS = '1000';
+    try {
+      expect(svc.quote(1000, 700).commission_farm).toBe(70);
+    } finally {
+      if (prev === undefined) delete process.env.DROPSHIP_COMMISSION_BPS;
+      else process.env.DROPSHIP_COMMISSION_BPS = prev;
+    }
   });
 
   it('only allows the order and supplier transitions that are defined', () => {

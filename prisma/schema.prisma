@@ -2645,12 +2645,21 @@ model cargo_rates {
   id         String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   from_zone  String  @db.VarChar(40)
   to_zone    String  @db.VarChar(40)
-  min_kg     Decimal @db.Decimal(10, 3)
-  max_kg     Decimal @db.Decimal(10, 3)
-  price_farm Decimal @db.Decimal(30, 8)
-  active     Boolean @default(true)
+  min_kg        Decimal  @db.Decimal(10, 3)
+  max_kg        Decimal  @db.Decimal(10, 3)
+  price_farm    Decimal  @db.Decimal(30, 8)
+  base_fee_farm Decimal? @db.Decimal(30, 8)
+  per_kg_farm   Decimal? @db.Decimal(30, 8)
+  active        Boolean  @default(true)
 
   @@index([from_zone, to_zone, active])
+}
+
+/// One row. Farm plus partner shares are basis points and sum to 10000.
+model cargo_revenue_settings {
+  id                Int @id @default(1)
+  farm_share_bps    Int @default(2000)
+  partner_share_bps Int @default(8000)
 }
 
 model cargo_shipments {
@@ -2665,6 +2674,8 @@ model cargo_shipments {
   payment_transaction_id String?  @db.Uuid
   pickup_address         String?
   delivery_address       String?
+  farm_share_bps         Int?
+  partner_share_bps      Int?
   created_at             DateTime @default(now()) @db.Timestamptz(6)
   events                 cargo_shipment_events[]
 

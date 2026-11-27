@@ -36,6 +36,35 @@ describe('cargo', () => {
       price_farm: 250,
       eta: null,
       maps_verified: false,
+      farm_share_bps: 2000,
+      partner_share_bps: 8000,
+    });
+  });
+
+  it('prices a zone as base fee plus weight times the per-kg rate', async () => {
+    const prisma: any = {
+      cargo_rates: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            from_zone: 'nairobi',
+            to_zone: 'mombasa',
+            base_fee_farm: 100,
+            per_kg_farm: 20,
+          },
+        ]),
+      },
+      cargo_revenue_settings: {
+        findUnique: jest
+          .fn()
+          .mockResolvedValue({ farm_share_bps: 2000, partner_share_bps: 8000 }),
+      },
+    };
+    const quote = await new CargoService(prisma).quote('nairobi', 'mombasa', 3);
+    expect(quote).toMatchObject({
+      price_farm: 160,
+      pricing: 'base_plus_kg',
+      eta: null,
+      maps_verified: false,
     });
   });
 

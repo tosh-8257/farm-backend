@@ -4,6 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
+import { money } from '../commerce/order-rules';
 
 const NEXT: Record<string, string[]> = {
   quoted: ['booked', 'cancelled'],
@@ -29,13 +30,30 @@ export class CargoService {
 
   async quote(fromZone: string, toZone: string, weightKg: number) {
     if (!(weightKg > 0)) throw new BadRequestException('Weight must be positive');
+    const from = fromZone.trim().toLowerCase();
+    const to = toZone.trim().toLowerCase();
     const rates = await this.prisma.cargo_rates.findMany({
-      where: {
-        from_zone: fromZone.trim().toLowerCase(),
-        to_zone: toZone.trim().toLowerCase(),
-        active: true,
-      },
+      where: { from_zone: from, to_zone: to, active: true },
     });
+    const split = await this.split();
+    const priced = rates.find(
+      (row) => row.base_fee_farm != null || row.per_kg_farm != null,
+    );
+    if (priced) {
+      const base = Number(priced.base_fee_farm ?? 0);
+      const perKg = Number(priced.per_kg_farm ?? 0);
+      return {
+        from_zone: priced.from_zone,
+        to_zone: priced.to_zone,
+        weight_kg: weightKg,
+        price_farm: money(base + perKg * weightKg),
+        pricing: 'base_plus_kg' as const,
+        eta: null,
+        maps_verified: false as const,
+        farm_share_bps: split.farm,
+        partner_share_bps: split.partner,
+      };
+    }
     const rate = rates.find(
       (row) => weightKg >= Number(row.min_kg) && weightKg <= Number(row.max_kg),
     );
@@ -48,8 +66,21 @@ export class CargoService {
       to_zone: rate.to_zone,
       weight_kg: weightKg,
       price_farm: Number(rate.price_farm),
+      pricing: 'legacy_band' as const,
       eta: null,
       maps_verified: false as const,
+      farm_share_bps: split.farm,
+      partner_share_bps: split.partner,
+    };
+  }
+
+  private async split() {
+    const row = await this.prisma.cargo_revenue_settings?.findUnique({
+      where: { id: 1 },
+    });
+    return {
+      farm: row?.farm_share_bps ?? 2000,
+      partner: row?.partner_share_bps ?? 8000,
     };
   }
 
@@ -94,6 +125,8 @@ export class CargoService {
         payment_transaction_id: input.transactionId,
         pickup_address: this.address(input.pickupAddress),
         delivery_address: this.address(input.deliveryAddress),
+        farm_share_bps: quote.farm_share_bps,
+        partner_share_bps: quote.partner_share_bps,
         events: {
           create: [{ status: 'quoted', note: 'Quote accepted' }, { status: 'booked' }],
         },

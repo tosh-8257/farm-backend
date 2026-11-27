@@ -39,35 +39,34 @@ export class CargoAdminService {
     input: {
       fromZone: string;
       toZone: string;
-      minKg: number;
-      maxKg: number;
-      priceFarm: number;
+      baseFeeFarm: number;
+      perKgFarm: number;
     },
   ) {
     const fromZone = input.fromZone.trim().toLowerCase();
     const toZone = input.toZone.trim().toLowerCase();
     if (!fromZone || !toZone)
       throw new BadRequestException('Both zones are required');
-    if (!(input.maxKg >= input.minKg) || input.minKg < 0)
-      throw new BadRequestException('Weight band is invalid');
-    if (!(input.priceFarm > 0))
-      throw new BadRequestException('Price must be positive');
-    const existing = await this.prisma.cargo_rates.findMany({
+    if (input.baseFeeFarm < 0 || input.perKgFarm < 0)
+      throw new BadRequestException('Rates cannot be negative');
+    if (input.baseFeeFarm === 0 && input.perKgFarm === 0)
+      throw new BadRequestException('Set a base fee or a per-kilogram rate');
+    const existing = await this.prisma.cargo_rates.findFirst({
       where: { from_zone: fromZone, to_zone: toZone, active: true },
     });
-    const overlap = existing.some(
-      (row) =>
-        input.minKg <= Number(row.max_kg) && input.maxKg >= Number(row.min_kg),
-    );
-    if (overlap)
-      throw new ConflictException('This weight band overlaps an active rate');
+    if (existing)
+      throw new ConflictException(
+        'Turn off the active rate for this zone pair before adding another',
+      );
     const rate = await this.prisma.cargo_rates.create({
       data: {
         from_zone: fromZone,
         to_zone: toZone,
-        min_kg: input.minKg,
-        max_kg: input.maxKg,
-        price_farm: input.priceFarm,
+        min_kg: 0,
+        max_kg: 0,
+        price_farm: input.baseFeeFarm,
+        base_fee_farm: input.baseFeeFarm,
+        per_kg_farm: input.perKgFarm,
         active: true,
       },
     });
@@ -76,7 +75,12 @@ export class CargoAdminService {
       action: 'cargo_rate_create',
       resource: 'cargo_rates',
       resourceId: rate.id,
-      newValues: { fromZone, toZone, priceFarm: input.priceFarm },
+      newValues: {
+        fromZone,
+        toZone,
+        baseFeeFarm: input.baseFeeFarm,
+        perKgFarm: input.perKgFarm,
+      },
       status: 'success',
     });
     return { data: rate };
@@ -99,5 +103,43 @@ export class CargoAdminService {
       status: 'success',
     });
     return { data: updated };
+  }
+
+  async setSplit(
+    adminId: string,
+    input: { farmShareBps: number; partnerShareBps: number },
+  ) {
+    if (
+      !Number.isInteger(input.farmShareBps) ||
+      !Number.isInteger(input.partnerShareBps) ||
+      input.farmShareBps < 0 ||
+      input.partnerShareBps < 0 ||
+      input.farmShareBps + input.partnerShareBps !== 10_000
+    ) {
+      throw new BadRequestException(
+        'Farm and partner shares must be whole basis points that sum to 10000',
+      );
+    }
+    const row = await this.prisma.cargo_revenue_settings.upsert({
+      where: { id: 1 },
+      create: {
+        id: 1,
+        farm_share_bps: input.farmShareBps,
+        partner_share_bps: input.partnerShareBps,
+      },
+      update: {
+        farm_share_bps: input.farmShareBps,
+        partner_share_bps: input.partnerShareBps,
+      },
+    });
+    await this.audit.log({
+      userId: adminId,
+      action: 'cargo_split',
+      resource: 'cargo_revenue_settings',
+      resourceId: '1',
+      newValues: input,
+      status: 'success',
+    });
+    return { data: row };
   }
 }
